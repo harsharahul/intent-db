@@ -66,6 +66,7 @@ class IntentLens:
     def fit(
         sample_vectors: np.ndarray,
         strength: float = DEFAULT_LENS_STRENGTH,
+        shrinkage_pseudo_count: float = 8.0,
     ) -> "IntentLens":
         """Learn a gate from example vectors of an intent.
 
@@ -73,10 +74,19 @@ class IntentLens:
         ``relevance_i = mean_i**2 / (var_i + eps)``. Dimensions that are
         consistently active across the intent's examples score high. The
         scores are normalized to [0, 1] and mapped to gates in
-        ``[1, 1 + strength]``.
+        ``[1, 1 + strength * shrink]``.
 
-        With a single example the variance is zero everywhere and the score
-        gracefully degrades to the squared magnitude profile of that vector.
+        ``shrink = n / (n + shrinkage_pseudo_count)`` pulls the gate toward
+        the identity when examples are few (ITML-style regularization
+        toward the base metric): one exemplar barely bends the space, a
+        dozen exemplars get most of the configured strength. Few-exemplar
+        metric learning without shrinkage is statistically unsound
+        (Verma & Branson, NeurIPS 2015).
+
+        Callers should standardize ``sample_vectors`` against corpus
+        statistics first (see :func:`standardize`): raw dense-embedding
+        dimensions are dominated by anisotropy/"rogue dimension" artifacts
+        rather than meaning (Timkey & van Schijndel, EMNLP 2021).
         """
         mat = np.atleast_2d(np.asarray(sample_vectors, dtype=np.float64))
         mean = mat.mean(axis=0)
@@ -84,11 +94,19 @@ class IntentLens:
         eps = 1e-4
         relevance = (mean * mean) / (var + eps)
         peak = relevance.max()
+        shrink = mat.shape[0] / (mat.shape[0] + shrinkage_pseudo_count)
         if peak <= 0:
             gate = np.ones(mat.shape[1])
         else:
-            gate = 1.0 + strength * (relevance / peak)
+            gate = 1.0 + strength * shrink * (relevance / peak)
         return IntentLens(gate=gate.astype(np.float32))
+
+
+def standardize(
+    vectors: np.ndarray, mu: np.ndarray, sigma: np.ndarray
+) -> np.ndarray:
+    """Standardize vectors against corpus per-dimension statistics."""
+    return (np.asarray(vectors, dtype=np.float64) - mu) / sigma
 
 
 @dataclass
@@ -110,6 +128,10 @@ class Intent:
     vector: np.ndarray | None = None  # unit-norm centroid, shape (dim,)
     lens: IntentLens | None = None
     lens_strength: float = DEFAULT_LENS_STRENGTH
+    #: corpus per-dimension stats the lens was fit under; the lensed
+    #: similarity must be computed in this same standardized basis
+    mu: np.ndarray | None = None
+    sigma: np.ndarray | None = None
 
     @staticmethod
     def build(
@@ -119,8 +141,15 @@ class Intent:
         embed_batch,
         instruction: str | None = None,
         lens_strength: float = DEFAULT_LENS_STRENGTH,
+        corpus_stats: tuple[np.ndarray, np.ndarray] | None = None,
     ) -> "Intent":
-        """Embed the description/exemplars and fit the vector and lens."""
+        """Embed the description/exemplars and fit the vector and lens.
+
+        ``corpus_stats`` is the (mu, sigma) of the document collection; the
+        lens is fit on exemplars standardized against it, so the gate
+        measures intent-specific deviation from the corpus rather than
+        anisotropy artifacts shared by every vector.
+        """
         texts = [description] + list(exemplars)
         texts = [t for t in texts if t and t.strip()]
         if not texts:
@@ -130,14 +159,21 @@ class Intent:
         norm = np.linalg.norm(centroid)
         if norm > 0:
             centroid = centroid / norm
+        dim = mat.shape[1]
+        if corpus_stats is None:
+            mu, sigma = np.zeros(dim), np.ones(dim)
+        else:
+            mu, sigma = corpus_stats
         return Intent(
             name=name,
             description=description,
             exemplars=list(exemplars),
             instruction=instruction if instruction is not None else description,
             vector=centroid.astype(np.float32),
-            lens=IntentLens.fit(mat, strength=lens_strength),
+            lens=IntentLens.fit(standardize(mat, mu, sigma), strength=lens_strength),
             lens_strength=lens_strength,
+            mu=mu.astype(np.float32),
+            sigma=sigma.astype(np.float32),
         )
 
     def affinity(self, vectors: np.ndarray) -> np.ndarray:

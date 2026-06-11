@@ -120,6 +120,7 @@ def cmd_query(args: argparse.Namespace) -> int:
             k=args.k,
             auto_intent=not args.no_auto_intent,
             hybrid=args.hybrid,
+            prf=args.prf,
         )
     if args.json:
         print(json.dumps([r.to_dict() for r in results], indent=2))
@@ -265,6 +266,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--hybrid",
         action="store_true",
         help="fuse dense ranking with BM25 lexical ranking (RRF)",
+    )
+    sp.add_argument(
+        "--prf",
+        action="store_true",
+        help="pseudo-relevance feedback: refine the query toward top results",
     )
     sp.add_argument("--json", action="store_true", help="machine-readable output")
     sp.set_defaults(func=cmd_query)

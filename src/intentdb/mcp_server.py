@@ -55,6 +55,11 @@ TOOLS: list[dict[str, Any]] = [
                     "description": "fuse dense ranking with BM25 lexical ranking",
                     "default": False,
                 },
+                "prf": {
+                    "type": "boolean",
+                    "description": "pseudo-relevance feedback (Rocchio query refinement)",
+                    "default": False,
+                },
             },
             "required": ["query"],
         },
@@ -142,6 +147,7 @@ def call_tool(db: IntentDB, name: str, arguments: dict[str, Any]) -> Any:
             k=int(arguments.get("k", 5)),
             auto_intent=bool(arguments.get("auto_intent", True)),
             hybrid=bool(arguments.get("hybrid", False)),
+            prf=bool(arguments.get("prf", False)),
         )
         return [r.to_dict() for r in results]
     if name == "intentdb_add":

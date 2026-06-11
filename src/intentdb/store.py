@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS intents (
     instruction   TEXT,
     vector        BLOB NOT NULL,
     gate          BLOB NOT NULL,
+    mu            BLOB,
+    sigma         BLOB,
     lens_strength REAL NOT NULL,
     created_at    REAL NOT NULL
 );
@@ -82,7 +84,15 @@ class Store:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.executescript(_SCHEMA)
+        self._migrate()
         self.conn.commit()
+
+    def _migrate(self) -> None:
+        """Add columns introduced after the first release to old stores."""
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(intents)")}
+        for col in ("mu", "sigma"):
+            if col not in cols:
+                self.conn.execute(f"ALTER TABLE intents ADD COLUMN {col} BLOB")
 
     def close(self) -> None:
         self.conn.close()
@@ -175,16 +185,18 @@ class Store:
         instruction: str | None,
         vector: np.ndarray,
         gate: np.ndarray,
+        mu: np.ndarray,
+        sigma: np.ndarray,
         lens_strength: float,
     ) -> None:
         self.conn.execute(
             "INSERT INTO intents(name, description, exemplars, instruction, "
-            "vector, gate, lens_strength, created_at) "
-            "VALUES(?, ?, ?, ?, ?, ?, ?, ?) "
+            "vector, gate, mu, sigma, lens_strength, created_at) "
+            "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(name) DO UPDATE SET description=excluded.description, "
             "exemplars=excluded.exemplars, instruction=excluded.instruction, "
-            "vector=excluded.vector, gate=excluded.gate, "
-            "lens_strength=excluded.lens_strength",
+            "vector=excluded.vector, gate=excluded.gate, mu=excluded.mu, "
+            "sigma=excluded.sigma, lens_strength=excluded.lens_strength",
             (
                 name,
                 description,
@@ -192,6 +204,8 @@ class Store:
                 instruction,
                 _to_blob(vector),
                 _to_blob(gate),
+                _to_blob(mu),
+                _to_blob(sigma),
                 lens_strength,
                 time.time(),
             ),
@@ -206,7 +220,7 @@ class Store:
     def load_all_intents(self) -> list[dict]:
         rows = self.conn.execute(
             "SELECT name, description, exemplars, instruction, vector, gate, "
-            "lens_strength FROM intents ORDER BY name"
+            "mu, sigma, lens_strength FROM intents ORDER BY name"
         ).fetchall()
         return [
             {
@@ -216,7 +230,9 @@ class Store:
                 "instruction": r[3],
                 "vector": _from_blob(r[4]),
                 "gate": _from_blob(r[5]),
-                "lens_strength": r[6],
+                "mu": _from_blob(r[6]) if r[6] is not None else None,
+                "sigma": _from_blob(r[7]) if r[7] is not None else None,
+                "lens_strength": r[8],
             }
             for r in rows
         ]

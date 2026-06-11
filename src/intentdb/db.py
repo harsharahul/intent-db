@@ -32,7 +32,13 @@ import numpy as np
 
 from .chunking import chunk_text
 from .embedders import Embedder, get_embedder
-from .intent import DEFAULT_LENS_STRENGTH, Intent, IntentLens, infer_intent
+from .intent import (
+    DEFAULT_LENS_STRENGTH,
+    Intent,
+    IntentLens,
+    infer_intent,
+    standardize,
+)
 from .lexical import BM25Index, rrf_fuse
 from .mining import IntentSuggestion, mine_intents
 from .store import Store
@@ -126,6 +132,8 @@ class IntentDB:
         self._intents: dict[str, Intent] = {}
         # per intent: document affinities aligned with matrix rows
         self._intent_affinities: dict[str, np.ndarray] = {}
+        # per intent: mean lensed norm of standardized docs (score scale)
+        self._lens_scale: dict[str, float] = {}
 
     # -- lifecycle ------------------------------------------------------------
 
@@ -147,6 +155,7 @@ class IntentDB:
             self._matrix = matrix
         for key, text in zip(keys, texts):
             self._bm25.add(key, text)
+        dim = self.embedder.dim
         for row in self.store.load_all_intents():
             intent = Intent(
                 name=row["name"],
@@ -156,10 +165,52 @@ class IntentDB:
                 vector=row["vector"],
                 lens=IntentLens(gate=row["gate"]),
                 lens_strength=row["lens_strength"],
+                # intents from pre-standardization stores fall back to the
+                # raw basis (mu=0, sigma=1), matching how they were fit
+                mu=row["mu"] if row["mu"] is not None else np.zeros(dim, np.float32),
+                sigma=row["sigma"]
+                if row["sigma"] is not None
+                else np.ones(dim, np.float32),
             )
             self._intents[intent.name] = intent
             self._load_intent_stats(intent.name)
+            self._lens_scale[intent.name] = self._compute_lens_scale(intent)
         self._loaded = True
+
+    #: corpus-stat shrinkage: stats only reach full strength once the
+    #: collection is a few hundred documents — mu/sigma estimated from a
+    #: handful of docs would make "absence of a term" a matchable feature
+    STATS_PSEUDO_COUNT = 250
+
+    def _corpus_stats(self) -> tuple[np.ndarray, np.ndarray]:
+        """Shrunk per-dimension (mu, sigma) of the stored document vectors.
+
+        The raw estimates are blended toward the identity basis
+        (mu=0, sigma=1) by ``lam = n / (n + STATS_PSEUDO_COUNT)``: tiny
+        collections keep the raw embedding basis, large collections get the
+        full anisotropy correction.
+        """
+        dim = self.embedder.dim
+        n = len(self._ids)
+        if n == 0:
+            return np.zeros(dim), np.ones(dim)
+        lam = n / (n + self.STATS_PSEUDO_COUNT)
+        mu = lam * self._matrix.astype(np.float64).mean(axis=0)
+        sigma = (1.0 - lam) + lam * self._matrix.astype(np.float64).std(axis=0)
+        return mu, np.maximum(sigma, 1e-3)
+
+    def _compute_lens_scale(self, intent: Intent) -> float:
+        """Mean lensed norm of standardized documents under an intent.
+
+        Dividing lensed scores by this keeps them in a cosine-like range so
+        the three signals blend on comparable scales, while still not
+        normalizing per document (which would penalize intent-rich docs).
+        """
+        if not self._ids:
+            return 1.0
+        docs_s = standardize(self._matrix, intent.mu, intent.sigma)
+        norms = np.linalg.norm(docs_s * intent.lens.gate, axis=1)
+        return float(max(norms.mean(), 1e-9))
 
     def _load_intent_stats(self, intent_name: str) -> None:
         by_id = self.store.load_intent_affinities(intent_name)
@@ -301,6 +352,7 @@ class IntentDB:
             embed_batch=self.embedder.embed_batch,
             instruction=instruction,
             lens_strength=lens_strength,
+            corpus_stats=self._corpus_stats(),
         )
         self.store.upsert_intent(
             name=intent.name,
@@ -309,8 +361,11 @@ class IntentDB:
             instruction=intent.instruction,
             vector=intent.vector,
             gate=intent.lens.gate,
+            mu=intent.mu,
+            sigma=intent.sigma,
             lens_strength=lens_strength,
         )
+        self._lens_scale[name] = self._compute_lens_scale(intent)
         self._intents[name] = intent
 
         if self._ids:
@@ -331,6 +386,7 @@ class IntentDB:
         removed = self.store.delete_intent(name)
         self._intents.pop(name, None)
         self._intent_affinities.pop(name, None)
+        self._lens_scale.pop(name, None)
         return removed
 
     def list_intents(self) -> list[dict]:
@@ -358,6 +414,8 @@ class IntentDB:
         where: Callable[[dict], bool] | None = None,
         intent_threshold: float = 0.08,
         hybrid: bool = False,
+        prf: bool = False,
+        prf_depth: int = 5,
         log: bool = True,
     ) -> list[QueryResult]:
         """Retrieve the top-``k`` documents for a query.
@@ -376,6 +434,12 @@ class IntentDB:
             Also rank with BM25 and fuse the dense and lexical rankings via
             Reciprocal Rank Fusion. ``score`` then holds the RRF value;
             the per-signal fields keep their usual meanings.
+        prf:
+            Pseudo-relevance feedback (Rocchio): after a first scoring
+            pass, pull the query vector toward the top-``prf_depth``
+            on-intent documents (and away from off-intent ones when an
+            intent is active), then rescore. Costs one extra pass; no
+            training, no index changes.
         log:
             Record the query in the query log (used by
             :meth:`suggest_intents`). Disable for automated traffic.
@@ -404,31 +468,36 @@ class IntentDB:
             )
             inferred = active is not None
 
-        base = (self._matrix @ q).astype(np.float64)
+        w = dict(DEFAULT_WEIGHTS)
+        if weights:
+            w.update(weights)
+        # Instruction-aware embedders re-vectorize the query under the
+        # active intent (INSTRUCTOR-style); others reuse the plain vector.
+        q_active = q
+        if (
+            active is not None
+            and self.embedder.supports_instructions
+            and active.instruction
+        ):
+            q_active = self.embedder.embed_query(text, instruction=active.instruction)
 
-        if active is None:
-            scores = base
-            lensed = affinities = None
-        else:
-            w = dict(DEFAULT_WEIGHTS)
-            if weights:
-                w.update(weights)
-            # Instruction-aware embedders re-vectorize the query under the
-            # active intent (INSTRUCTOR-style); others reuse the plain vector.
-            q_active = q
-            if self.embedder.supports_instructions and active.instruction:
-                q_active = self.embedder.embed_query(
-                    text, instruction=active.instruction
+        base, lensed, affinities, scores = self._score_pass(q, q_active, active, w)
+
+        if prf and len(self._ids) > 1:
+            depth = min(prf_depth, len(self._ids))
+            top = np.argpartition(scores, -depth)[-depth:]
+            top = top[scores[top] > 0]  # feedback only from actual matches
+            if len(top):
+                fb_scores = scores[top]
+                q = self._rocchio(q, top, fb_scores, active)
+                q_active = (
+                    q
+                    if active is None
+                    else self._rocchio(q_active, top, fb_scores, active)
                 )
-            q_lensed_norm = max(float(active.lens.lensed_norms(q_active)), 1e-9)
-            raw = self._matrix @ (q_active * active.lens.gate_sq)
-            lensed = (raw / q_lensed_norm).astype(np.float64)
-            affinities = self._intent_affinities[active.name].astype(np.float64)
-            scores = (
-                w["lensed"] * lensed
-                + w["affinity"] * affinities
-                + w["base"] * base
-            )
+                base, lensed, affinities, scores = self._score_pass(
+                    q, q_active, active, w
+                )
 
         lexical = None
         if hybrid:
@@ -470,6 +539,81 @@ class IntentDB:
             if len(results) >= k:
                 break
         return results
+
+    def _score_pass(
+        self,
+        q: np.ndarray,
+        q_active: np.ndarray,
+        active: Intent | None,
+        w: dict[str, float],
+    ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None, np.ndarray]:
+        """Compute (base, lensed, affinities, fused) over the collection.
+
+        The lensed signal is computed in the intent's standardized basis
+        (vectors centered and scaled by the corpus stats captured at
+        registration), so the gate measures intent-specific structure
+        rather than anisotropy artifacts. Only the query is transformed:
+        with ``q_s = (q - mu)/sigma`` and ``v = gate^2 * q_s / sigma``,
+
+            <q_s*g, d_s*g> = <d, v> - <mu, v>
+
+        which is one matrix-vector product for the whole collection.
+        """
+        base = (self._matrix @ q).astype(np.float64)
+        if active is None:
+            return base, None, None, base
+        q_s = standardize(q_active, active.mu, active.sigma)
+        v = (active.lens.gate_sq * q_s) / active.sigma
+        raw = self._matrix @ v.astype(np.float64) - float(active.mu @ v)
+        q_norm = max(float(np.linalg.norm(q_s * active.lens.gate)), 1e-9)
+        scale = self._lens_scale.get(active.name, 1.0)
+        lensed = (raw / (q_norm * scale)).astype(np.float64)
+        affinities = self._intent_affinities[active.name].astype(np.float64)
+        fused = w["lensed"] * lensed + w["affinity"] * affinities + w["base"] * base
+        return base, lensed, affinities, fused
+
+    def _rocchio(
+        self,
+        q: np.ndarray,
+        top_positions: np.ndarray,
+        fb_scores: np.ndarray,
+        active: Intent | None,
+        alpha: float = 0.6,
+        beta: float = 0.3,
+        gamma: float = 0.1,
+    ) -> np.ndarray:
+        """Intent-aware Rocchio pseudo-relevance feedback on the query.
+
+        Moves the query toward the score-weighted centroid of on-intent
+        feedback documents and (when an intent is active) away from
+        off-intent ones — the classic Rocchio update with the first-pass
+        retrieval score standing in for graded relevance and the intent
+        affinity splitting positive from negative feedback. Pure vector
+        arithmetic over vectors already in memory; the index is untouched.
+        """
+        vecs = self._matrix[top_positions].astype(np.float64)
+        weights = fb_scores.astype(np.float64)
+        if active is not None:
+            aff = self._intent_affinities[active.name][top_positions]
+            on, off = aff > 0, aff <= 0
+        else:
+            on = np.ones(len(vecs), dtype=bool)
+            off = ~on
+
+        def centroid(mask: np.ndarray) -> np.ndarray | None:
+            if not mask.any():
+                return None
+            ws = weights[mask]
+            return (ws[:, None] * vecs[mask]).sum(axis=0) / ws.sum()
+
+        q2 = alpha * q.astype(np.float64)
+        on_c, off_c = centroid(on), centroid(off)
+        if on_c is not None:
+            q2 = q2 + beta * on_c
+        if off_c is not None:
+            q2 = q2 - gamma * off_c
+        norm = np.linalg.norm(q2)
+        return (q2 / norm if norm > 0 else q2).astype(np.float32)
 
     # -- intent mining -------------------------------------------------------
 

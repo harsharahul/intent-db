@@ -30,8 +30,9 @@ intent: coding                           intent: wildlife
 - Adding an intent never re-embeds your corpus: documents are embedded
   once; intents cost one matrix-vector product to index.
 
-See [PLAN.md](PLAN.md) for the architecture, the math, the research it is
-grounded in, and known limitations.
+See [PLAN.md](PLAN.md) for the architecture, the math, and known
+limitations, and [RESEARCH.md](RESEARCH.md) for the academic literature
+review the design is grounded in (and the ranked roadmap derived from it).
 
 ## Install
 
@@ -82,6 +83,10 @@ db.query("python", intent="coding", k=3,
 # Hybrid search: dense ranking fused with BM25 (Reciprocal Rank Fusion) —
 # catches exact identifiers/error codes that embeddings miss:
 db.query("ECONNREFUSED billing-service", hybrid=True)
+
+# Pseudo-relevance feedback (Rocchio): refine the query toward the top
+# on-intent matches and away from off-intent ones, then rescore:
+db.query("postgres", intent="databases", prf=True)
 
 # Long documents: chunk on paragraph/sentence boundaries with overlap:
 db.add_chunked(long_text, doc_key="manual", max_chars=1200, overlap=200)
