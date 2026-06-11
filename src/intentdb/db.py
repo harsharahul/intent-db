@@ -30,8 +30,11 @@ from uuid import uuid4
 
 import numpy as np
 
+from .chunking import chunk_text
 from .embedders import Embedder, get_embedder
 from .intent import DEFAULT_LENS_STRENGTH, Intent, IntentLens, infer_intent
+from .lexical import BM25Index, rrf_fuse
+from .mining import IntentSuggestion, mine_intents
 from .store import Store
 
 #: Default blend of the three scoring signals.
@@ -49,6 +52,7 @@ class QueryResult:
     base_score: float
     lensed_score: float | None = None
     intent_affinity: float | None = None
+    lexical_score: float | None = None
     intent: str | None = None
     intent_inferred: bool = False
     intent_scores: dict[str, float] = field(default_factory=dict)
@@ -66,6 +70,8 @@ class QueryResult:
             out["intent_inferred"] = self.intent_inferred
             out["lensed_score"] = round(self.lensed_score, 6)
             out["intent_affinity"] = round(self.intent_affinity, 6)
+        if self.lexical_score is not None:
+            out["lexical_score"] = round(self.lexical_score, 6)
         return out
 
 
@@ -116,6 +122,7 @@ class IntentDB:
         self._texts: list[str] = []
         self._metas: list[dict] = []
         self._matrix: np.ndarray = np.zeros((0, self.embedder.dim), dtype=np.float32)
+        self._bm25 = BM25Index()
         self._intents: dict[str, Intent] = {}
         # per intent: document affinities aligned with matrix rows
         self._intent_affinities: dict[str, np.ndarray] = {}
@@ -138,6 +145,8 @@ class IntentDB:
         self._ids, self._keys, self._texts, self._metas = ids, keys, texts, metas
         if matrix.size:
             self._matrix = matrix
+        for key, text in zip(keys, texts):
+            self._bm25.add(key, text)
         for row in self.store.load_all_intents():
             intent = Intent(
                 name=row["name"],
@@ -188,6 +197,7 @@ class IntentDB:
             meta = metadata or {}
             doc_id = self.store.upsert_document(key, text, meta, vec)
             out_keys.append(key)
+            self._bm25.add(key, text)
 
             if key in self._keys:  # replace in the in-memory mirror
                 pos = self._keys.index(key)
@@ -219,10 +229,32 @@ class IntentDB:
             self.store.upsert_doc_intent_stats(stats_rows)
         return out_keys
 
+    def add_chunked(
+        self,
+        text: str,
+        doc_key: str,
+        metadata: dict | None = None,
+        max_chars: int = 1200,
+        overlap: int = 200,
+    ) -> list[str]:
+        """Split a long text into overlapping chunks and store each one.
+
+        Chunks get keys ``{doc_key}#0``, ``{doc_key}#1``, ... and inherit
+        ``metadata`` plus ``parent`` (the doc_key) and ``chunk`` (its index).
+        """
+        chunks = chunk_text(text, max_chars=max_chars, overlap=overlap)
+        items = [
+            (chunk, f"{doc_key}#{i}", {**(metadata or {}), "parent": doc_key, "chunk": i})
+            for i, chunk in enumerate(chunks)
+        ]
+        return self.add_many(items)
+
     def delete(self, doc_key: str) -> bool:
         """Delete a document by key. Returns True if it existed."""
         self._ensure_loaded()
         removed = self.store.delete_document(doc_key)
+        if removed:
+            self._bm25.remove(doc_key)
         if removed and doc_key in self._keys:
             pos = self._keys.index(doc_key)
             for lst in (self._ids, self._keys, self._texts, self._metas):
@@ -325,6 +357,8 @@ class IntentDB:
         weights: dict[str, float] | None = None,
         where: Callable[[dict], bool] | None = None,
         intent_threshold: float = 0.08,
+        hybrid: bool = False,
+        log: bool = True,
     ) -> list[QueryResult]:
         """Retrieve the top-``k`` documents for a query.
 
@@ -338,6 +372,13 @@ class IntentDB:
             Override the blend of ``lensed`` / ``affinity`` / ``base``.
         where:
             Optional metadata predicate, e.g. ``lambda m: m.get("lang") == "en"``.
+        hybrid:
+            Also rank with BM25 and fuse the dense and lexical rankings via
+            Reciprocal Rank Fusion. ``score`` then holds the RRF value;
+            the per-signal fields keep their usual meanings.
+        log:
+            Record the query in the query log (used by
+            :meth:`suggest_intents`). Disable for automated traffic.
         """
         self._ensure_loaded()
         if intent is not None and intent not in self._intents:
@@ -389,6 +430,19 @@ class IntentDB:
                 + w["base"] * base
             )
 
+        lexical = None
+        if hybrid:
+            key_to_pos = {key: pos for pos, key in enumerate(self._keys)}
+            lexical = self._bm25.scores(text, key_to_pos, len(self._keys))
+            dense_order = np.argsort(scores)[::-1]
+            # rank only documents that actually matched a query term
+            lex_order = np.argsort(lexical)[::-1]
+            lex_order = lex_order[lexical[lex_order] > 0]
+            scores = rrf_fuse([dense_order, lex_order], len(self._keys))
+
+        if log:
+            self.store.log_query(text, active.name if active else None, inferred)
+
         order = np.argsort(scores)[::-1]
         results: list[QueryResult] = []
         for pos in order:
@@ -405,6 +459,9 @@ class IntentDB:
                     intent_affinity=(
                         float(affinities[pos]) if affinities is not None else None
                     ),
+                    lexical_score=(
+                        float(lexical[pos]) if lexical is not None else None
+                    ),
                     intent=active.name if active else None,
                     intent_inferred=inferred,
                     intent_scores=intent_scores,
@@ -413,6 +470,31 @@ class IntentDB:
             if len(results) >= k:
                 break
         return results
+
+    # -- intent mining -------------------------------------------------------
+
+    def suggest_intents(
+        self,
+        k: int = 3,
+        min_cluster_size: int = 3,
+        undeclared_only: bool = True,
+    ) -> list[IntentSuggestion]:
+        """Mine the query log for recurring themes that could be intents.
+
+        Clusters logged queries (by default only those that ran without an
+        explicitly requested intent) and returns up to ``k`` suggestions,
+        each with representative queries to use as exemplars for
+        :meth:`register_intent`.
+        """
+        self._ensure_loaded()
+        entries = self.store.load_query_log(undeclared_only=undeclared_only)
+        texts = [e["text"] for e in entries]
+        if not texts:
+            return []
+        vectors = np.stack([self.embedder.embed_query(t) for t in texts])
+        return mine_intents(
+            texts, vectors, k=k, min_cluster_size=min_cluster_size
+        )
 
     # -- introspection ------------------------------------------------------------
 
@@ -424,6 +506,7 @@ class IntentDB:
             "intents": sorted(self._intents),
             "embedder": self.embedder.spec,
             "dim": self.embedder.dim,
+            "logged_queries": self.store.count_query_log(),
         }
 
     def explain(self, text: str) -> dict[str, Any]:

@@ -55,7 +55,22 @@ def cmd_add(args: argparse.Namespace) -> int:
 
     metadata = json.loads(args.metadata) if args.metadata else {}
     with _open(args) as db:
-        if len(texts) == 1:
+        if args.chunk:
+            if not args.key:
+                print("--chunk requires --key", file=sys.stderr)
+                return 2
+            keys = []
+            for text in texts:
+                keys.extend(
+                    db.add_chunked(
+                        text,
+                        doc_key=args.key,
+                        metadata=metadata,
+                        max_chars=args.chunk_size,
+                        overlap=args.chunk_overlap,
+                    )
+                )
+        elif len(texts) == 1:
             keys = [db.add(texts[0], doc_key=args.key, metadata=metadata)]
         else:
             keys = db.add_many([(t, None, metadata) for t in texts])
@@ -104,6 +119,7 @@ def cmd_query(args: argparse.Namespace) -> int:
             intent=args.intent,
             k=args.k,
             auto_intent=not args.no_auto_intent,
+            hybrid=args.hybrid,
         )
     if args.json:
         print(json.dumps([r.to_dict() for r in results], indent=2))
@@ -138,6 +154,18 @@ def cmd_explain(args: argparse.Namespace) -> int:
 def cmd_stats(args: argparse.Namespace) -> int:
     with _open(args) as db:
         print(json.dumps(db.stats(), indent=2))
+    return 0
+
+
+def cmd_suggest_intents(args: argparse.Namespace) -> int:
+    with _open(args) as db:
+        suggestions = db.suggest_intents(
+            k=args.k, min_cluster_size=args.min_cluster_size
+        )
+    if not suggestions:
+        print("(no suggestions yet — the query log needs more undeclared queries)")
+        return 0
+    print(json.dumps([s.to_dict() for s in suggestions], indent=2))
     return 0
 
 
@@ -179,6 +207,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sp.add_argument("--stdin", action="store_true", help="read text from stdin")
     sp.add_argument("--metadata", help="JSON object of metadata")
+    sp.add_argument(
+        "--chunk",
+        action="store_true",
+        help="split long text into overlapping chunks (requires --key; "
+        "chunks are stored as KEY#0, KEY#1, ...)",
+    )
+    sp.add_argument("--chunk-size", type=int, default=1200, help="max chars per chunk")
+    sp.add_argument("--chunk-overlap", type=int, default=200, help="chars of overlap")
     sp.set_defaults(func=cmd_add)
 
     sp = sub.add_parser("delete", help="delete a document by key")
@@ -225,6 +261,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="disable intent inference when --intent is not given",
     )
     sp.add_argument("-k", type=int, default=5, help="number of results")
+    sp.add_argument(
+        "--hybrid",
+        action="store_true",
+        help="fuse dense ranking with BM25 lexical ranking (RRF)",
+    )
     sp.add_argument("--json", action="store_true", help="machine-readable output")
     sp.set_defaults(func=cmd_query)
 
@@ -236,6 +277,15 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("stats", help="database statistics")
     add_db_arg(sp)
     sp.set_defaults(func=cmd_stats)
+
+    sp = sub.add_parser(
+        "suggest-intents",
+        help="mine the query log for recurring themes that could be intents",
+    )
+    add_db_arg(sp)
+    sp.add_argument("-k", type=int, default=3, help="max suggestions")
+    sp.add_argument("--min-cluster-size", type=int, default=3)
+    sp.set_defaults(func=cmd_suggest_intents)
 
     sp = sub.add_parser(
         "serve-mcp",

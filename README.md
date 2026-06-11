@@ -78,6 +78,18 @@ hit.score, hit.base_score, hit.lensed_score, hit.intent_affinity
 db.query("python", intent="coding", k=3,
          where=lambda m: m.get("topic") == "software",
          weights={"lensed": 0.5, "affinity": 0.3, "base": 0.2})
+
+# Hybrid search: dense ranking fused with BM25 (Reciprocal Rank Fusion) —
+# catches exact identifiers/error codes that embeddings miss:
+db.query("ECONNREFUSED billing-service", hybrid=True)
+
+# Long documents: chunk on paragraph/sentence boundaries with overlap:
+db.add_chunked(long_text, doc_key="manual", max_chars=1200, overlap=200)
+
+# Intent mining: every query is logged; recurring themes among queries
+# that ran without a declared intent become intent suggestions:
+for s in db.suggest_intents(k=3):
+    print(s.size, s.coherence, s.exemplars)   # name it, then register_intent(...)
 ```
 
 ## CLI
@@ -90,8 +102,11 @@ intentdb intent add kb.intentdb debugging \
     --description "diagnosing errors and failures in software" \
     --exemplar "why is my service crashing"
 intentdb query kb.intentdb "postgres locks" --intent debugging -k 3
+intentdb query kb.intentdb "ECONNREFUSED" --hybrid     # dense + BM25 (RRF)
 intentdb query kb.intentdb "postgres locks" --json     # for machines
+intentdb add kb.intentdb --file manual.txt --chunk --key manual  # chunked ingest
 intentdb explain kb.intentdb "why does my app crash"   # intent classifier view
+intentdb suggest-intents kb.intentdb                   # mine the query log
 intentdb stats kb.intentdb
 ```
 
@@ -113,7 +128,8 @@ Desktop, local agents) can mount a database as a retrieval tool:
 ```
 
 Exposed tools: `intentdb_query`, `intentdb_add`, `intentdb_register_intent`,
-`intentdb_list_intents`, `intentdb_explain`, `intentdb_stats`.
+`intentdb_list_intents`, `intentdb_explain`, `intentdb_stats`,
+`intentdb_suggest_intents`.
 
 ## Embedders
 
@@ -149,6 +165,6 @@ store.
 ## Development
 
 ```bash
-python -m pytest          # 46 tests
+python -m pytest          # 68 tests
 python examples/demo.py   # end-to-end demo
 ```

@@ -50,6 +50,11 @@ TOOLS: list[dict[str, Any]] = [
                     "description": "infer intent when none is given",
                     "default": True,
                 },
+                "hybrid": {
+                    "type": "boolean",
+                    "description": "fuse dense ranking with BM25 lexical ranking",
+                    "default": False,
+                },
             },
             "required": ["query"],
         },
@@ -110,6 +115,21 @@ TOOLS: list[dict[str, Any]] = [
         "description": "Database statistics (document count, intents, embedder).",
         "inputSchema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "intentdb_suggest_intents",
+        "description": (
+            "Mine the query log for recurring themes that could become "
+            "registered intents. Returns clusters with exemplar queries; "
+            "pick a name and register them with intentdb_register_intent."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "k": {"type": "integer", "description": "max suggestions", "default": 3},
+                "min_cluster_size": {"type": "integer", "default": 3},
+            },
+        },
+    },
 ]
 
 
@@ -121,6 +141,7 @@ def call_tool(db: IntentDB, name: str, arguments: dict[str, Any]) -> Any:
             intent=arguments.get("intent"),
             k=int(arguments.get("k", 5)),
             auto_intent=bool(arguments.get("auto_intent", True)),
+            hybrid=bool(arguments.get("hybrid", False)),
         )
         return [r.to_dict() for r in results]
     if name == "intentdb_add":
@@ -144,6 +165,12 @@ def call_tool(db: IntentDB, name: str, arguments: dict[str, Any]) -> Any:
         return db.explain(arguments["query"])
     if name == "intentdb_stats":
         return db.stats()
+    if name == "intentdb_suggest_intents":
+        suggestions = db.suggest_intents(
+            k=int(arguments.get("k", 3)),
+            min_cluster_size=int(arguments.get("min_cluster_size", 3)),
+        )
+        return [s.to_dict() for s in suggestions]
     raise ValueError(f"unknown tool {name!r}")
 
 

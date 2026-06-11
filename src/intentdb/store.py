@@ -51,7 +51,17 @@ CREATE TABLE IF NOT EXISTS doc_intent (
     affinity    REAL    NOT NULL,
     PRIMARY KEY (doc_id, intent_name)
 );
+CREATE TABLE IF NOT EXISTS query_log (
+    id         INTEGER PRIMARY KEY,
+    text       TEXT NOT NULL,
+    intent     TEXT,
+    inferred   INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL
+);
 """
+
+#: queries kept in the log; older entries are pruned
+QUERY_LOG_CAP = 10_000
 
 
 def _to_blob(v: np.ndarray) -> bytes:
@@ -231,6 +241,45 @@ class Store:
             (intent_name,),
         ).fetchall()
         return {r[0]: r[1] for r in rows}
+
+    # -- query log ------------------------------------------------------------
+
+    def log_query(self, text: str, intent: str | None, inferred: bool) -> None:
+        self.conn.execute(
+            "INSERT INTO query_log(text, intent, inferred, created_at) "
+            "VALUES(?, ?, ?, ?)",
+            (text, intent, int(inferred), time.time()),
+        )
+        self.conn.execute(
+            "DELETE FROM query_log WHERE id <= ("
+            "  SELECT MAX(id) - ? FROM query_log)",
+            (QUERY_LOG_CAP,),
+        )
+        self.conn.commit()
+
+    def load_query_log(
+        self, undeclared_only: bool = False, limit: int = QUERY_LOG_CAP
+    ) -> list[dict]:
+        """Most recent first. ``undeclared_only`` keeps queries that ran
+        without an explicitly requested intent (inferred or none)."""
+        where = "WHERE intent IS NULL OR inferred = 1" if undeclared_only else ""
+        rows = self.conn.execute(
+            f"SELECT text, intent, inferred, created_at FROM query_log {where} "
+            "ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [
+            {
+                "text": r[0],
+                "intent": r[1],
+                "inferred": bool(r[2]),
+                "created_at": r[3],
+            }
+            for r in rows
+        ]
+
+    def count_query_log(self) -> int:
+        return int(self.conn.execute("SELECT COUNT(*) FROM query_log").fetchone()[0])
 
     def commit(self) -> None:
         self.conn.commit()

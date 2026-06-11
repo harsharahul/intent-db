@@ -121,8 +121,9 @@ plain cosine search. `explain()` exposes the classifier's view.
   sentence-transformers for true semantic retrieval.
 - **SQLite WAL = single writer** — many readers, one writer; fine for a
   local/per-agent database, not for multi-writer servers.
-- **No chunking pipeline** — callers chunk documents (the CLI offers
-  `--split-paragraphs`); a proper chunker is roadmap.
+- **BM25 scoring is a Python loop over postings** — fast for short
+  queries on local corpora, slower than the vectorized dense path on very
+  large vocabularies; only runs when ``hybrid=True``.
 
 ## 5. Implementation phases
 
@@ -137,9 +138,14 @@ plain cosine search. `explain()` exposes the classifier's view.
   script.
 - **Phase 4 — Scale (roadmap):** HNSW or IVF index behind the same query
   API; memory-mapped vector matrix; batched/streaming ingest.
-- **Phase 5 — Retrieval quality (roadmap):** BM25 sparse signal + RRF
-  fusion; optional cross-encoder reranking stage; per-intent learned
-  weights from relevance feedback; document chunking pipeline.
-- **Phase 6 — Intent learning (roadmap):** mine intents automatically from
-  query logs (cluster query embeddings); update lenses online from clicks
-  / LLM feedback.
+- **Phase 5 — Retrieval quality (done):** incremental BM25 index over the
+  corpus with hybrid dense+sparse retrieval fused by Reciprocal Rank
+  Fusion (`query(..., hybrid=True)`); paragraph/sentence chunking with
+  overlap (`add_chunked`, CLI `--chunk`). Still roadmap: cross-encoder
+  reranking; per-intent learned weights from relevance feedback.
+- **Phase 6 — Intent learning (done, first iteration):** every query is
+  logged (capped, opt-out with `log=False`); `suggest_intents()` clusters
+  undeclared queries with spherical k-means and proposes intents with
+  exemplar queries (CLI `suggest-intents`, MCP `intentdb_suggest_intents`)
+  — an LLM or human names them and calls `register_intent`. Still
+  roadmap: online lens updates from clicks / LLM feedback.
