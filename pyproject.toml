@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "intentdb"
+version = "0.1.0"
+description = "A local-first, intent-aware vector database: retrieval conditioned on intent, built for LLM consumption."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "intent-db contributors" }]
+dependencies = ["numpy>=1.24"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+ollama = []          # uses stdlib urllib against a local Ollama server
+sbert = ["sentence-transformers>=2.2"]
+
+[project.scripts]
+intentdb = "intentdb.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
