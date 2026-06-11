@@ -30,6 +30,7 @@ from uuid import uuid4
 
 import numpy as np
 
+from . import fusion
 from .chunking import chunk_text
 from .embedders import Embedder, get_embedder
 from .intent import (
@@ -134,6 +135,8 @@ class IntentDB:
         self._intent_affinities: dict[str, np.ndarray] = {}
         # per intent: mean lensed norm of standardized docs (score scale)
         self._lens_scale: dict[str, float] = {}
+        # per intent: fusion weights learned from relevance feedback
+        self._fusion_weights: dict[str, dict[str, float]] = {}
 
     # -- lifecycle ------------------------------------------------------------
 
@@ -175,6 +178,7 @@ class IntentDB:
             self._intents[intent.name] = intent
             self._load_intent_stats(intent.name)
             self._lens_scale[intent.name] = self._compute_lens_scale(intent)
+        self._fusion_weights = self.store.load_fusion_weights()
         self._loaded = True
 
     #: corpus-stat shrinkage: stats only reach full strength once the
@@ -387,6 +391,7 @@ class IntentDB:
         self._intents.pop(name, None)
         self._intent_affinities.pop(name, None)
         self._lens_scale.pop(name, None)
+        self._fusion_weights.pop(name, None)
         return removed
 
     def list_intents(self) -> list[dict]:
@@ -468,7 +473,11 @@ class IntentDB:
             )
             inferred = active is not None
 
+        # Weight precedence: explicit override > weights learned from this
+        # intent's relevance feedback > defaults.
         w = dict(DEFAULT_WEIGHTS)
+        if active is not None and active.name in self._fusion_weights:
+            w.update(self._fusion_weights[active.name])
         if weights:
             w.update(weights)
         # Instruction-aware embedders re-vectorize the query under the
@@ -615,6 +624,106 @@ class IntentDB:
         norm = np.linalg.norm(q2)
         return (q2 / norm if norm > 0 else q2).astype(np.float32)
 
+    # -- relevance feedback and learned fusion ---------------------------------
+
+    def record_feedback(
+        self,
+        query: str,
+        doc_key: str,
+        useful: bool = True,
+        intent: str | None = None,
+    ) -> None:
+        """Record whether a retrieved document was actually useful.
+
+        This is the learning signal for :meth:`learn_fusion_weights`: an
+        LLM (or human) consuming results reports which documents it used.
+        ``intent`` should be the intent the query ran under, if any.
+        """
+        self.store.add_feedback(query, doc_key, intent, useful)
+
+    def learn_fusion_weights(
+        self,
+        intent: str | None = None,
+        min_pairs: int = fusion.MIN_PAIRS,
+    ) -> dict[str, dict[str, float] | None]:
+        """Learn per-intent fusion weights from accumulated feedback.
+
+        For every feedback query, the three signals (lensed, affinity,
+        base) are computed for the marked documents; useful documents are
+        paired against non-useful ones (or sampled implicit negatives when
+        only positives were recorded), and a small logistic model fits a
+        convex weight blend (Bruch et al., TOIS 2023: tuned linear fusion
+        beats rank-only fusion and is sample-efficient). Learned weights
+        are persisted and applied automatically on subsequent queries;
+        intents without enough feedback keep the defaults (``None`` in the
+        returned map).
+        """
+        self._ensure_loaded()
+        if intent is not None and intent not in self._intents:
+            raise KeyError(f"unknown intent {intent!r}")
+        names = [intent] if intent is not None else sorted(self._intents)
+        key_to_pos = {k: i for i, k in enumerate(self._keys)}
+        rng = np.random.default_rng(0)
+        results: dict[str, dict[str, float] | None] = {}
+
+        for name in names:
+            act = self._intents[name]
+            by_query: dict[str, dict[str, bool]] = {}
+            for r in self.store.load_feedback(name):
+                by_query.setdefault(r["query_text"], {})[r["doc_key"]] = r["useful"]
+
+            pairs: list[tuple[np.ndarray, np.ndarray]] = []
+            for qtext, marks in by_query.items():
+                q = self.embedder.embed_query(qtext)
+                q_active = q
+                if self.embedder.supports_instructions and act.instruction:
+                    q_active = self.embedder.embed_query(
+                        qtext, instruction=act.instruction
+                    )
+                base, lensed, aff, _ = self._score_pass(
+                    q, q_active, act, DEFAULT_WEIGHTS
+                )
+
+                def signals(pos: int) -> np.ndarray:
+                    return np.array([lensed[pos], aff[pos], base[pos]])
+
+                positives = [
+                    signals(key_to_pos[k])
+                    for k, u in marks.items()
+                    if u and k in key_to_pos
+                ]
+                negatives = [
+                    signals(key_to_pos[k])
+                    for k, u in marks.items()
+                    if not u and k in key_to_pos
+                ]
+                if positives and not negatives:
+                    # only positives recorded: sample unmarked docs as
+                    # implicit negatives (standard implicit-feedback move)
+                    others = [
+                        i for i, k in enumerate(self._keys) if k not in marks
+                    ]
+                    if others:
+                        chosen = rng.choice(
+                            others, size=min(3, len(others)), replace=False
+                        )
+                        negatives = [signals(int(i)) for i in chosen]
+                pairs.extend(fusion.build_preference_pairs(positives, negatives))
+
+            learned = fusion.learn_weights(
+                pairs, DEFAULT_WEIGHTS, min_pairs=min_pairs
+            )
+            if learned is not None:
+                self.store.upsert_fusion_weights(name, learned, len(pairs))
+                self._fusion_weights[name] = learned
+            results[name] = learned
+        return results
+
+    def fusion_weights(self) -> dict[str, dict[str, float]]:
+        """Currently learned per-intent fusion weights."""
+        self._ensure_loaded()
+        return dict(self._fusion_weights)
+
     # -- intent mining -------------------------------------------------------
 
     def suggest_intents(
@@ -651,6 +760,8 @@ class IntentDB:
             "embedder": self.embedder.spec,
             "dim": self.embedder.dim,
             "logged_queries": self.store.count_query_log(),
+            "feedback": self.store.count_feedback(),
+            "learned_intents": sorted(self._fusion_weights),
         }
 
     def explain(self, text: str) -> dict[str, Any]:

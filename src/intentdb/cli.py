@@ -170,6 +170,29 @@ def cmd_suggest_intents(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_feedback(args: argparse.Namespace) -> int:
+    with _open(args) as db:
+        db.record_feedback(
+            args.query,
+            args.doc_key,
+            useful=not args.not_useful,
+            intent=args.intent,
+        )
+        print(f"recorded ({db.stats()['feedback']} feedback entries total)")
+    return 0
+
+
+def cmd_learn(args: argparse.Namespace) -> int:
+    with _open(args) as db:
+        results = db.learn_fusion_weights(intent=args.intent)
+    out = {
+        name: (w if w is not None else "not enough feedback (defaults kept)")
+        for name, w in results.items()
+    }
+    print(json.dumps(out, indent=2))
+    return 0
+
+
 def cmd_serve_mcp(args: argparse.Namespace) -> int:
     from .mcp_server import serve
 
@@ -283,6 +306,29 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("stats", help="database statistics")
     add_db_arg(sp)
     sp.set_defaults(func=cmd_stats)
+
+    sp = sub.add_parser(
+        "feedback",
+        help="record whether a retrieved document was useful for a query",
+    )
+    add_db_arg(sp)
+    sp.add_argument("query", help="the query that was run")
+    sp.add_argument("doc_key", help="the document being judged")
+    sp.add_argument("--intent", help="intent the query ran under")
+    sp.add_argument(
+        "--not-useful",
+        action="store_true",
+        help="mark the document as NOT useful (default: useful)",
+    )
+    sp.set_defaults(func=cmd_feedback)
+
+    sp = sub.add_parser(
+        "learn",
+        help="learn per-intent fusion weights from accumulated feedback",
+    )
+    add_db_arg(sp)
+    sp.add_argument("--intent", help="learn for one intent only")
+    sp.set_defaults(func=cmd_learn)
 
     sp = sub.add_parser(
         "suggest-intents",

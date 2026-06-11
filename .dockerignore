@@ -1,0 +1,14 @@
+.git
+.github
+.gitignore
+.dockerignore
+.pytest_cache
+__pycache__
+*.egg-info
+build
+dist
+tests
+examples
+*.intentdb*
+*.md
+!README.md

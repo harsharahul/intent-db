@@ -121,6 +121,38 @@ TOOLS: list[dict[str, Any]] = [
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
+        "name": "intentdb_record_feedback",
+        "description": (
+            "Report whether a retrieved document was actually useful for a "
+            "query. This trains the database: accumulated feedback is used "
+            "to learn better per-intent signal weights. Call this after "
+            "using (or discarding) retrieved results."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "the query that was run"},
+                "doc_key": {"type": "string"},
+                "useful": {"type": "boolean", "default": True},
+                "intent": {"type": "string", "description": "intent the query ran under"},
+            },
+            "required": ["query", "doc_key"],
+        },
+    },
+    {
+        "name": "intentdb_learn_fusion",
+        "description": (
+            "Learn per-intent fusion weights from accumulated feedback. "
+            "Intents with too little feedback keep the default weights."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "intent": {"type": "string", "description": "learn for one intent only"},
+            },
+        },
+    },
+    {
         "name": "intentdb_suggest_intents",
         "description": (
             "Mine the query log for recurring themes that could become "
@@ -171,6 +203,20 @@ def call_tool(db: IntentDB, name: str, arguments: dict[str, Any]) -> Any:
         return db.explain(arguments["query"])
     if name == "intentdb_stats":
         return db.stats()
+    if name == "intentdb_record_feedback":
+        db.record_feedback(
+            arguments["query"],
+            arguments["doc_key"],
+            useful=bool(arguments.get("useful", True)),
+            intent=arguments.get("intent"),
+        )
+        return {"recorded": True}
+    if name == "intentdb_learn_fusion":
+        results = db.learn_fusion_weights(intent=arguments.get("intent"))
+        return {
+            name_: (w if w is not None else "not enough feedback")
+            for name_, w in results.items()
+        }
     if name == "intentdb_suggest_intents":
         suggestions = db.suggest_intents(
             k=int(arguments.get("k", 3)),

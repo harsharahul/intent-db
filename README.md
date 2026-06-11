@@ -2,123 +2,159 @@
 
 **A local-first vector database with an extra dimension: intent.**
 
-A normal vector database embeds your data once and answers every query
-against that single fixed geometry. IntentDB makes the geometry
-*conditional on intent*: the same corpus and the same query return
-different results depending on what the asker is trying to do — and when
-no intent is declared, the most plausible one is inferred from the query
+[![CI](https://github.com/harsharahul/intent-db/actions/workflows/ci.yml/badge.svg)](https://github.com/harsharahul/intent-db/actions/workflows/ci.yml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+A conventional vector database embeds your data once and answers every
+query against that single, fixed geometry. IntentDB makes the geometry
+conditional on *intent*: the same corpus and the same query return
+different results depending on what the asker is trying to do. When no
+intent is declared, the most plausible one is inferred from the query
 itself. Storage is general-purpose; retrieval is designed for an LLM
-consumer (structured hits, score breakdowns, and a built-in MCP server).
+consumer — structured hits, per-signal score breakdowns, a built-in MCP
+server, and a feedback loop the database learns from.
 
 ```text
-query: "python"                          query: "python"
-intent: coding                           intent: wildlife
-──────────────────────────               ──────────────────────────
-1. Python is a programming               1. The python is a large
-   language; write code...                  snake, a reptile that...
+query: "python"                       query: "python"                       query: "python"
+intent: coding                        intent: wildlife                      intent: comedy
+---------------------------           ---------------------------          ---------------------------
+1. Python is a programming            1. The python is a large             1. Monty Python was a
+   language; write code,                 snake, a reptile that                British comedy group
+   functions, and modules...             lives in jungle habitats...          famous for sketch humor...
 ```
 
-- Single SQLite file, pure Python + NumPy. No services, no model downloads
-  required (a deterministic hashing embedder ships in the box; plug in
-  Ollama or sentence-transformers for semantic embeddings).
-- Three intent mechanisms, fused into one score:
-  **instruction conditioning** (the query is re-embedded under the
-  intent's instruction, [INSTRUCTOR](https://arxiv.org/abs/2212.09741)-style,
-  when the embedder supports it), an **intent lens** (a per-intent
-  diagonal re-weighting of embedding space — model-agnostic), and
-  **intent affinity** (precomputed `cos(doc, intent)` per document).
-- Adding an intent never re-embeds your corpus: documents are embedded
-  once; intents cost one matrix-vector product to index.
+One SQLite file. Pure Python and NumPy. No services, no model downloads
+required — a deterministic hashing embedder ships in the box, and Ollama
+or sentence-transformers plug in for semantic embeddings.
 
-See [PLAN.md](PLAN.md) for the architecture, the math, and known
-limitations, and [RESEARCH.md](RESEARCH.md) for the academic literature
-review the design is grounded in (and the ranked roadmap derived from it).
+## Contents
 
-## Install
+- [Why intent-aware retrieval](#why-intent-aware-retrieval)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Command-line interface](#command-line-interface)
+- [Use from an LLM (MCP server)](#use-from-an-llm-mcp-server)
+- [The learning loop](#the-learning-loop)
+- [How it works](#how-it-works)
+- [Embedders](#embedders)
+- [Docker](#docker)
+- [Performance and limitations](#performance-and-limitations)
+- [Research foundations](#research-foundations)
+- [Development](#development)
+
+## Why intent-aware retrieval
+
+The same query rarely means one thing. "python" is a language, a snake,
+and a comedy troupe; "java" is code, coffee, and an island. A plain vector
+database collapses all of those into one similarity ranking. The standard
+workarounds — rewriting queries by hand, separate collections per topic —
+push the problem onto the caller.
+
+IntentDB instead makes intent a first-class, registered object. Each
+intent contributes three retrieval signals, fused into one score:
+
+1. **Instruction conditioning.** With an instruction-aware embedder, the
+   query is re-embedded under the intent's natural-language instruction,
+   so the query vector itself moves (the INSTRUCTOR pattern).
+2. **The intent lens.** Each intent owns a per-dimension gate over the
+   embedding space, fitted from its description and exemplar queries.
+   Query-document overlap on intent-characteristic dimensions is
+   amplified. Model-agnostic, and only the query is transformed, so
+   intent retrieval over the whole collection costs one extra
+   matrix-vector product.
+3. **Intent affinity.** Every document's cosine to every intent vector is
+   precomputed at ingest: a prior for "does this document belong to this
+   intent at all", independent of the query.
+
+Documents are embedded exactly once. Registering a new intent over a
+million documents is one matrix-vector product, not a million model
+calls. Without intents, IntentDB degrades gracefully to an ordinary
+cosine vector store.
+
+## Installation
+
+From source (Python 3.10+, the only runtime dependency is NumPy):
 
 ```bash
-pip install -e .          # from this repo; needs Python 3.10+, numpy
+git clone https://github.com/harsharahul/intent-db
+cd intent-db
+pip install -e .          # library + intentdb CLI
 pip install -e .[dev]     # + pytest
 ```
 
-## Python API
+Or use the container image — see [Docker](#docker).
+
+## Quick start
 
 ```python
 from intentdb import IntentDB
 
-db = IntentDB("knowledge.intentdb")            # hashing embedder by default
+db = IntentDB("knowledge.intentdb")   # hashing embedder by default
 # db = IntentDB("knowledge.intentdb", embedder="ollama:model=nomic-embed-text")
 
+# Ingest. Documents are embedded once; re-adding a doc_key replaces it.
 db.add("Python is a programming language; write code and debug programs.",
        doc_key="py-lang", metadata={"topic": "software"})
 db.add("The python is a large snake, a reptile of jungle habitats.",
        doc_key="py-snake", metadata={"topic": "nature"})
 
-db.register_intent(
-    "coding",
-    description="software programming, source code, debugging",
-    exemplars=["how do I write code", "debug my program"],
-)
-db.register_intent(
-    "wildlife",
-    description="animals, reptiles, snakes, jungle habitats",
-    exemplars=["what do snakes eat"],
-)
-
-db.query("python", intent="coding")[0].doc_key    # -> "py-lang"
-db.query("python", intent="wildlife")[0].doc_key  # -> "py-snake"
-
-# No intent? It is inferred from the query (and reported on the result):
-hit = db.query("python snake habitat")[0]
-hit.intent, hit.intent_inferred                   # -> ("wildlife", True)
-
-# Every hit carries its score breakdown:
-hit.score, hit.base_score, hit.lensed_score, hit.intent_affinity
-
-# Metadata filters, custom signal weights:
-db.query("python", intent="coding", k=3,
-         where=lambda m: m.get("topic") == "software",
-         weights={"lensed": 0.5, "affinity": 0.3, "base": 0.2})
-
-# Hybrid search: dense ranking fused with BM25 (Reciprocal Rank Fusion) —
-# catches exact identifiers/error codes that embeddings miss:
-db.query("ECONNREFUSED billing-service", hybrid=True)
-
-# Pseudo-relevance feedback (Rocchio): refine the query toward the top
-# on-intent matches and away from off-intent ones, then rescore:
-db.query("postgres", intent="databases", prf=True)
-
-# Long documents: chunk on paragraph/sentence boundaries with overlap:
+# Long documents: chunk on paragraph/sentence boundaries with overlap.
 db.add_chunked(long_text, doc_key="manual", max_chars=1200, overlap=200)
 
-# Intent mining: every query is logged; recurring themes among queries
-# that ran without a declared intent become intent suggestions:
-for s in db.suggest_intents(k=3):
-    print(s.size, s.coherence, s.exemplars)   # name it, then register_intent(...)
+# Register intents: a description, optional exemplar queries, and an
+# optional instruction for instruction-aware embedders.
+db.register_intent("coding",
+                   description="software programming, source code, debugging",
+                   exemplars=["how do I write code", "debug my program"])
+db.register_intent("wildlife",
+                   description="animals, reptiles, snakes, jungle habitats",
+                   exemplars=["what do snakes eat"])
+
+# The headline behavior: same query, different intent, different results.
+db.query("python", intent="coding")[0].doc_key     # -> "py-lang"
+db.query("python", intent="wildlife")[0].doc_key   # -> "py-snake"
+
+# No intent declared? It is inferred (and reported on the result).
+hit = db.query("python snake habitat")[0]
+hit.intent, hit.intent_inferred                    # -> ("wildlife", True)
+
+# Every hit explains itself.
+hit.score, hit.base_score, hit.lensed_score, hit.intent_affinity
+
+# Optional retrieval upgrades, all local:
+db.query("ECONNREFUSED billing", hybrid=True)      # BM25 + dense, RRF-fused
+db.query("postgres", intent="coding", prf=True)    # pseudo-relevance feedback
+db.query("python", intent="coding",
+         where=lambda m: m.get("topic") == "software")   # metadata filter
 ```
 
-## CLI
+## Command-line interface
 
 ```bash
 intentdb init kb.intentdb
 intentdb add kb.intentdb "Postgres uses MVCC for concurrency" --key pg-mvcc
-intentdb add kb.intentdb --file notes.txt --split-paragraphs
+intentdb add kb.intentdb --file manual.txt --chunk --key manual
 intentdb intent add kb.intentdb debugging \
     --description "diagnosing errors and failures in software" \
     --exemplar "why is my service crashing"
 intentdb query kb.intentdb "postgres locks" --intent debugging -k 3
-intentdb query kb.intentdb "ECONNREFUSED" --hybrid     # dense + BM25 (RRF)
-intentdb query kb.intentdb "postgres locks" --json     # for machines
-intentdb add kb.intentdb --file manual.txt --chunk --key manual  # chunked ingest
-intentdb explain kb.intentdb "why does my app crash"   # intent classifier view
-intentdb suggest-intents kb.intentdb                   # mine the query log
+intentdb query kb.intentdb "ECONNREFUSED" --hybrid --prf
+intentdb query kb.intentdb "postgres locks" --json
+intentdb explain kb.intentdb "why does my app crash"
+intentdb feedback kb.intentdb "postgres locks" pg-mvcc --intent debugging
+intentdb learn kb.intentdb
+intentdb suggest-intents kb.intentdb
 intentdb stats kb.intentdb
 ```
 
+Run `intentdb <command> --help` for the full set of options.
+
 ## Use from an LLM (MCP server)
 
-IntentDB ships an MCP stdio server, so any MCP client (Claude Code, Claude
-Desktop, local agents) can mount a database as a retrieval tool:
+IntentDB ships a Model Context Protocol stdio server, so any MCP client
+(Claude Code, Claude Desktop, local agent frameworks) can mount a database
+as a retrieval tool:
 
 ```jsonc
 // .mcp.json
@@ -132,44 +168,206 @@ Desktop, local agents) can mount a database as a retrieval tool:
 }
 ```
 
-Exposed tools: `intentdb_query`, `intentdb_add`, `intentdb_register_intent`,
-`intentdb_list_intents`, `intentdb_explain`, `intentdb_stats`,
-`intentdb_suggest_intents`.
+| Tool | Purpose |
+|---|---|
+| `intentdb_query` | Search, optionally under a named intent (with hybrid/PRF options) |
+| `intentdb_add` | Store a document |
+| `intentdb_register_intent` | Register or redefine an intent |
+| `intentdb_list_intents` | List registered intents |
+| `intentdb_explain` | Show which intent the classifier infers for a query |
+| `intentdb_record_feedback` | Report whether a retrieved document was useful |
+| `intentdb_learn_fusion` | Learn per-intent signal weights from feedback |
+| `intentdb_suggest_intents` | Mine the query log for undeclared intents |
+| `intentdb_stats` | Database statistics |
+
+## The learning loop
+
+IntentDB improves from use, entirely locally:
+
+1. **Query logging.** Every query is recorded (capped, `log=False` opts
+   out for automated traffic).
+2. **Intent mining.** `suggest_intents()` clusters the queries that ran
+   without a declared intent and proposes new intents with exemplar
+   queries — an LLM or a human names them and calls `register_intent`.
+3. **Relevance feedback.** The consumer reports which results were
+   actually useful via `record_feedback(query, doc_key, useful, intent)`.
+4. **Learned fusion.** `learn_fusion_weights()` fits each intent's blend
+   of the three signals from that feedback (a small pairwise logistic
+   model; tuned linear fusion is the literature's sample-efficient
+   winner). Learned weights persist and apply automatically; intents
+   without enough feedback keep the defaults.
+
+```python
+db.record_feedback("research methods", "deep-paper", useful=True, intent="research")
+db.record_feedback("research methods", "marketing-page", useful=False, intent="research")
+db.learn_fusion_weights()        # {'research': {'lensed': ..., 'affinity': ..., 'base': ...}}
+```
+
+## How it works
+
+```text
+              WRITE PATH                              READ PATH
+  add(text) ──> embed once ──> SQLite          query(text, intent?)
+                  │             ├ documents+vectors      │
+                  │             ├ intents (vector,       ▼
+   per intent:    │             │  lens, mu/sigma)   declared? ──no──> infer from
+   affinity ──────┘             ├ doc_intent             │             intent vectors
+                                ├ query_log              ▼
+   register_intent(...)         └ feedback     embed query (conditioned on
+   fits vector + lens,                         the intent's instruction)
+   indexes all docs in                                   │
+   one matvec                                            ▼
+                                       score = w_l * lensed + w_a * affinity
+                                             + w_b * base   (+ BM25 via RRF,
+                                               + Rocchio PRF second pass)
+```
+
+For query `q`, document `d` (both unit norm), intent vector `t`, lens
+gate `g`, and the intent's corpus statistics `(mu, sigma)`:
+
+```text
+base      = cos(q, d)
+lensed    = <q_s * g, d_s * g> / (|q_s * g| * mean-doc-norm)
+            where x_s = (x - mu) / sigma         (standardized basis)
+affinity  = cos(d, t)                            (precomputed at ingest)
+score     = w_lensed * lensed + w_affinity * affinity + w_base * base
+```
+
+Design decisions worth knowing:
+
+- **One matvec per intent.** The identity `<q*g, d*g> = <q*g^2, d>` means
+  only the query is transformed at search time.
+- **Standardized lens basis.** Dense-embedding dimensions are dominated by
+  anisotropy artifacts ("rogue dimensions"); lenses are fitted and applied
+  in a corpus-standardized basis so gates measure intent, not artifacts.
+- **Double shrinkage.** Gates shrink toward the identity when an intent
+  has few exemplars, and the corpus statistics themselves shrink toward
+  the raw basis when the collection is small — both estimators are only
+  trusted in proportion to their data.
+- **Asymmetric lensed similarity.** The document side keeps its base norm;
+  re-normalizing documents in the lensed space would penalize documents
+  rich in intent-relevant content.
 
 ## Embedders
 
-| Spec | What it is |
+| Spec | Description |
 |---|---|
-| `hashing:dim=512` (default) | Deterministic lexical hashing; zero deps, no downloads |
-| `ollama:model=nomic-embed-text` | Any local Ollama embedding model; task prefixes (`prefix_mode=nomic\|e5\|none`) and intent instructions supported |
-| `sbert:model=all-MiniLM-L6-v2` | sentence-transformers models (`pip install .[sbert]`) |
+| `hashing:dim=512` (default) | Deterministic lexical feature hashing. Zero dependencies, no downloads, fully reproducible. Quality is lexical: good for tests, demos, keyword-ish corpora. |
+| `ollama:model=nomic-embed-text` | Any local Ollama embedding model. Task prefixes via `prefix_mode=nomic\|e5\|none`; intent instructions are injected into the query. |
+| `sbert:model=all-MiniLM-L6-v2` | sentence-transformers models (`pip install -e .[sbert]`). |
 
-The embedder spec is stored in the database and restored on reopen;
-mismatched dimensions are rejected.
+The embedder spec is stored inside the database and restored on reopen;
+dimension mismatches are rejected. Note that small bi-encoders treat
+instructions mostly as additional keywords (a soft topical bias) rather
+than true semantic constraints — the lens and affinity signals carry the
+intent conditioning for those models. See [RESEARCH.md](RESEARCH.md).
 
-## How intent changes the vectorization
+## Docker
 
-For query `q`, document `d` (embedded once, unit norm), active intent with
-vector `t`, instruction `i`, and lens gate `g` (a per-dimension weighting
-fit from the intent's description and exemplars):
+A multi-stage image is built by CI and published to GitHub Container
+Registry on pushes to `main` and on version tags:
 
-```text
-q        = embed_query(text, instruction=i)      # moves with intent (neural embedders)
-lensed   = ⟨q·g, d·g⟩ / ‖q·g‖                    # overlap on intent dimensions amplified
-affinity = cos(d, t)                              # precomputed at ingest
-base     = cos(q, d)                              # plain vector search
-score    = 0.6·lensed + 0.25·affinity + 0.15·base # weights tunable per query
+```bash
+docker pull ghcr.io/harsharahul/intent-db:latest
 ```
 
-The identity `⟨q·g, d·g⟩ = ⟨q·g², d⟩` means only the query is transformed
-at search time: intent-conditioned retrieval over the whole collection
-costs one extra matrix-vector product. Without intents (or below the
-inference confidence threshold) IntentDB behaves as a plain cosine vector
-store.
+Or build locally:
+
+```bash
+docker build -t intentdb .
+```
+
+The image's entrypoint is the `intentdb` CLI and `/data` is the working
+volume:
+
+```bash
+# CLI usage
+docker run --rm -v "$PWD/data:/data" intentdb init /data/kb.intentdb
+docker run --rm -v "$PWD/data:/data" intentdb add /data/kb.intentdb "some text" --key t1
+docker run --rm -v "$PWD/data:/data" intentdb query /data/kb.intentdb "some text"
+
+# MCP server over stdio (note -i)
+docker run --rm -i -v "$PWD/data:/data" intentdb serve-mcp /data/kb.intentdb
+```
+
+To use the containerized MCP server from an MCP client:
+
+```jsonc
+{
+  "mcpServers": {
+    "intentdb": {
+      "command": "docker",
+      "args": ["run", "--rm", "-i", "-v", "/abs/path/data:/data",
+               "ghcr.io/harsharahul/intent-db:latest",
+               "serve-mcp", "/data/kb.intentdb"]
+    }
+  }
+}
+```
+
+## Performance and limitations
+
+Honest numbers and trade-offs, by design:
+
+- **Exact search, O(N·d) per query.** Brute-force NumPy scoring is exact
+  and fast into the hundreds of thousands of documents on a laptop. ANN
+  indexing (IVF/HNSW) is on the roadmap for beyond that.
+- **SQLite WAL: many readers, one writer.** Right for a local or
+  per-agent database; wrong for a multi-writer server.
+- **BM25 scoring is a Python loop over postings.** Only runs with
+  `hybrid=True`; fine for short queries on local corpora.
+- **The lens is diagonal.** It re-weights dimensions but cannot rotate
+  the space. Per the sample-complexity literature this is the only sound
+  regime for few-exemplar intents; the documented upgrade path is
+  per-intent low-rank query adapters once feedback accumulates.
+- **The hashing embedder is lexical.** Plug in Ollama or
+  sentence-transformers for semantic retrieval.
+
+## Research foundations
+
+The design is grounded in (and was revised against) the retrieval
+literature: instruction-conditioned embeddings (INSTRUCTOR, TART,
+Promptriever; FollowIR/InstructIR benchmarks), diagonal and low-rank
+metric learning (Schultz & Joachims; ITML; Verma & Branson's sample
+complexity bounds), rogue-dimension/anisotropy corrections (Timkey & van
+Schijndel; embedding whitening), pseudo-relevance feedback (Rocchio;
+vector-PRF), fusion analysis (Cormack's RRF; Bruch et al.'s tuned convex
+combinations), and query-log intent mining (Beeferman & Berger through
+TnT-LLM). The full cited review, including the findings that contradicted
+the original design and the ranked roadmap derived from it, is in
+[RESEARCH.md](RESEARCH.md). The architecture document with the complete
+phase history is [PLAN.md](PLAN.md).
 
 ## Development
 
 ```bash
-python -m pytest          # 68 tests
+pip install -e .[dev]
+python -m pytest          # 91 tests
 python examples/demo.py   # end-to-end demo
 ```
+
+Repository layout:
+
+```text
+src/intentdb/
+  db.py           core engine: scoring, PRF, feedback, learned fusion
+  intent.py       intents, lenses, standardization, inference
+  embedders.py    hashing / Ollama / sentence-transformers adapters
+  store.py        SQLite persistence and migrations
+  lexical.py      incremental BM25 index and RRF
+  fusion.py       learned fusion weights from preference pairs
+  mining.py       query-log clustering for intent suggestions
+  chunking.py     paragraph/sentence chunker with overlap
+  cli.py          command-line interface
+  mcp_server.py   MCP stdio server for LLM clients
+tests/            pytest suite
+examples/demo.py  runnable end-to-end demonstration
+```
+
+CI runs the test suite on Python 3.10 through 3.13 and builds the Docker
+image on every push and pull request; images publish to GHCR from `main`
+and version tags.
+
+## License
+
+[MIT](LICENSE)

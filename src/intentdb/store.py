@@ -60,6 +60,20 @@ CREATE TABLE IF NOT EXISTS query_log (
     inferred   INTEGER NOT NULL DEFAULT 0,
     created_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS feedback (
+    id         INTEGER PRIMARY KEY,
+    query_text TEXT NOT NULL,
+    doc_key    TEXT NOT NULL,
+    intent     TEXT,
+    useful     INTEGER NOT NULL,
+    created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS fusion_weights (
+    intent_name TEXT PRIMARY KEY,
+    weights     TEXT NOT NULL,
+    pairs       INTEGER NOT NULL,
+    updated_at  REAL NOT NULL
+);
 """
 
 #: queries kept in the log; older entries are pruned
@@ -214,6 +228,7 @@ class Store:
 
     def delete_intent(self, name: str) -> bool:
         cur = self.conn.execute("DELETE FROM intents WHERE name=?", (name,))
+        self.conn.execute("DELETE FROM fusion_weights WHERE intent_name=?", (name,))
         self.conn.commit()
         return cur.rowcount > 0
 
@@ -296,6 +311,55 @@ class Store:
 
     def count_query_log(self) -> int:
         return int(self.conn.execute("SELECT COUNT(*) FROM query_log").fetchone()[0])
+
+    # -- relevance feedback ----------------------------------------------------
+
+    def add_feedback(
+        self, query_text: str, doc_key: str, intent: str | None, useful: bool
+    ) -> None:
+        self.conn.execute(
+            "INSERT INTO feedback(query_text, doc_key, intent, useful, created_at) "
+            "VALUES(?, ?, ?, ?, ?)",
+            (query_text, doc_key, intent, int(useful), time.time()),
+        )
+        self.conn.commit()
+
+    def load_feedback(self, intent: str | None = None) -> list[dict]:
+        if intent is None:
+            rows = self.conn.execute(
+                "SELECT query_text, doc_key, intent, useful FROM feedback ORDER BY id"
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT query_text, doc_key, intent, useful FROM feedback "
+                "WHERE intent=? ORDER BY id",
+                (intent,),
+            ).fetchall()
+        return [
+            {"query_text": r[0], "doc_key": r[1], "intent": r[2], "useful": bool(r[3])}
+            for r in rows
+        ]
+
+    def count_feedback(self) -> int:
+        return int(self.conn.execute("SELECT COUNT(*) FROM feedback").fetchone()[0])
+
+    def upsert_fusion_weights(
+        self, intent_name: str, weights: dict[str, float], pairs: int
+    ) -> None:
+        self.conn.execute(
+            "INSERT INTO fusion_weights(intent_name, weights, pairs, updated_at) "
+            "VALUES(?, ?, ?, ?) "
+            "ON CONFLICT(intent_name) DO UPDATE SET weights=excluded.weights, "
+            "pairs=excluded.pairs, updated_at=excluded.updated_at",
+            (intent_name, json.dumps(weights), pairs, time.time()),
+        )
+        self.conn.commit()
+
+    def load_fusion_weights(self) -> dict[str, dict[str, float]]:
+        rows = self.conn.execute(
+            "SELECT intent_name, weights FROM fusion_weights"
+        ).fetchall()
+        return {r[0]: json.loads(r[1]) for r in rows}
 
     def commit(self) -> None:
         self.conn.commit()
