@@ -335,8 +335,7 @@ vector-PRF), fusion analysis (Cormack's RRF; Bruch et al.'s tuned convex
 combinations), and query-log intent mining (Beeferman & Berger through
 TnT-LLM). The full cited review, including the findings that contradicted
 the original design and the ranked roadmap derived from it, is in
-[RESEARCH.md](RESEARCH.md). The architecture document with the complete
-phase history is [PLAN.md](PLAN.md).
+[RESEARCH.md](RESEARCH.md).
 
 ## Development
 

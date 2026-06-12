@@ -4,3 +4,4 @@ __pycache__/
 *.intentdb*
 build/
 dist/
+PLAN.md
