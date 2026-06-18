@@ -25,6 +25,10 @@ jobs:
         run: python -m pytest -q
       - name: Run end-to-end demo
         run: python examples/demo.py
+      - name: Run agent-memory example
+        run: python examples/agent_memory.py
+      - name: Run benchmark (smoke, hashing embedder)
+        run: python -m bench.run --quick
 
   docker:
     name: Docker image
