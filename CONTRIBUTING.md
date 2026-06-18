@@ -11,9 +11,9 @@ project; contributions that keep it that way are very welcome.
 - **Every change lands with tests.** The suite runs in ~1s; there is no
   excuse to skip it. New behavior gets a test that fails before the change
   and passes after.
-- **Accuracy over hype.** Claims in the README and `RESEARCH.md` are
-  expected to hold up against the literature. If a measurement is noisy or
-  a result is negative, say so.
+- **Accuracy over hype.** Claims in the README and docs should hold up
+  against the literature; cite sources in `REFERENCES.md`. If a measurement
+  is noisy or a result is negative, say so.
 
 ## Development
 

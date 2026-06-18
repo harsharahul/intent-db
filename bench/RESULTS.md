@@ -117,5 +117,5 @@ Full vs plain nDCG@10 delta (paired bootstrap 95% CI): **+0.179** [+0.106, +0.25
 
 - **p-MRR** is the paired reciprocal-rank delta (FollowIR-style); ~0 means the configuration is blind to intent (plain cosine returns the same ranking for every intent, so its p-MRR is exactly 0).
 - The significance line is a paired bootstrap CI on the per-case nDCG@10 difference between the full stack and plain cosine.
-- Rerank rows use FlashRank's TinyBERT — topical steering from the injected intent text, not true instruction following (see RESEARCH.md).
+- Rerank rows use FlashRank's TinyBERT — topical steering from the injected intent text, not true instruction following (see FollowIR in REFERENCES.md).
 - The hard track's headroom (the full stack well below 1.0) leaves room for future ranking refinements such as per-intent low-rank adapters.

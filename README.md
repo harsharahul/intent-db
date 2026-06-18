@@ -67,7 +67,7 @@ for the full ablation grid.
 - [Benchmark](#benchmark)
 - [Docker](#docker)
 - [Performance and limitations](#performance-and-limitations)
-- [Research foundations](#research-foundations)
+- [References](#references)
 - [Development](#development)
 
 ## Why intent-aware retrieval
@@ -298,7 +298,7 @@ The embedder spec is stored inside the database and restored on reopen;
 dimension mismatches are rejected. Note that small bi-encoders treat
 instructions mostly as additional keywords (a soft topical bias) rather
 than true semantic constraints — the lens and affinity signals carry the
-intent conditioning for those models. See [RESEARCH.md](RESEARCH.md).
+intent conditioning for those models. See [REFERENCES.md](REFERENCES.md).
 
 ## Reranking
 
@@ -421,19 +421,16 @@ Honest numbers and trade-offs, by design:
 - **The hashing embedder is lexical.** Plug in Ollama or
   sentence-transformers for semantic retrieval.
 
-## Research foundations
+## References
 
-The design is grounded in (and was revised against) the retrieval
-literature: instruction-conditioned embeddings (INSTRUCTOR, TART,
-Promptriever; FollowIR/InstructIR benchmarks), diagonal and low-rank
-metric learning (Schultz & Joachims; ITML; Verma & Branson's sample
-complexity bounds), rogue-dimension/anisotropy corrections (Timkey & van
-Schijndel; embedding whitening), pseudo-relevance feedback (Rocchio;
-vector-PRF), fusion analysis (Cormack's RRF; Bruch et al.'s tuned convex
-combinations), and query-log intent mining (Beeferman & Berger through
-TnT-LLM). The full cited review, including the findings that contradicted
-the original design and the ranked roadmap derived from it, is in
-[RESEARCH.md](RESEARCH.md).
+IntentDB's design builds on prior work in instruction-conditioned
+embeddings (INSTRUCTOR, TART, Promptriever; the FollowIR and InstructIR
+benchmarks), diagonal and low-rank metric learning (Schultz & Joachims;
+ITML; Verma & Branson), embedding-space corrections (Timkey & van
+Schijndel; whitening), pseudo-relevance feedback (Rocchio; vector-PRF),
+score fusion (RRF; Bruch et al.), and query-log intent mining (Beeferman &
+Berger through TnT-LLM). See [REFERENCES.md](REFERENCES.md) for the full
+list with links.
 
 ## Development
 
