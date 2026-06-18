@@ -3,10 +3,9 @@
 *Deep-research synthesis, June 2026. Five parallel literature sweeps
 (metric learning · instruction-conditioned embeddings · document
 representations · intent mining · fusion & evaluation), ~25 primary
-sources. Network note: this environment blocked direct arXiv/ACL fetches,
-so most claims are grounded in search-extract quotes of the primary papers
-plus four directly-fetched GitHub sources; confidence is marked where it
-matters. Claims corroborated by two independent sweeps are marked ✓✓.*
+sources, plus a later targeted novelty sweep (~40 sources, folded into §1)
+that revised the novelty claims downward where the literature had
+already moved. Claims corroborated by two independent sweeps are marked ✓✓.*
 
 ---
 
@@ -28,13 +27,27 @@ Each IntentDB mechanism has a direct academic ancestor:
 | Affinity prior cos(d, t) | Rocchio relevance feedback (1971); session-intent priors (Bennett+ SIGIR'12) | Supported; literature says blend it as a re-ranking feature, not a hard filter |
 | Instruction-conditioned queries | INSTRUCTOR ACL'23 (+3.4% avg); TART ACL'23; Promptriever ICLR'25 | Architecture right; **model caveat below is the biggest finding** |
 | BM25 + RRF hybrid | Cormack+ SIGIR'09; Pyserini hybrid (+1.8–3.8 MRR/nDCG pts) ✓✓ | Right default with zero training data; beatable (see §3.1) |
-| k-means intent mining | MTEB's own clustering protocol is mini-batch k-means | Defensible baseline; large documented headroom (§3.4) |
+| k-means intent mining | MTEB's own clustering protocol is mini-batch k-means | Reasonable baseline; large documented headroom (§3.4) |
 | Named intent registry | TnT-LLM (KDD'24, Bing Copilot); MADRM named aspects (KDD'22) | Validated pattern; registry also makes intent-conditioning cacheable in a way ad-hoc instructions are not |
 
-**The composition itself appears novel.** No published work was found
-combining intent-conditioned Fisher-score metrics with vector retrieval,
-and no published ablation of diagonal vs. full linear transforms on dense
-embeddings exists — IntentDB could *produce* that missing ablation.
+**Where the novelty actually sits (revised by the later sweep).**
+Query-side diagonal reweighting of frozen embeddings is *not* new on its
+own: DIME (SIGIR'24) does it per query, ECLIPSE (ECIR'25) and
+Learning-to-Select (2026) extend it, and Conditional Similarity Networks
+(CVPR'17) learn per-condition diagonal masks. What appears unoccupied is
+the *granularity and packaging* — a registry of named, persistent,
+**per-intent** Fisher-score lenses over a vector store, sitting between
+DIME's per-query weighting and Search-Adaptor / Chroma's per-dataset
+adapters. Two claims survive scrutiny: (a) the **diagonal-vs-low-rank
+sample-efficiency ablation on dense retrieval still appears unpublished**
+(the closest, Drift-Adapter EMNLP'25, compares adapter families for model
+migration but has no diagonal rung), which IntentDB can produce; and (b)
+a Fisher-diagonal-anchored, residual low-rank promotion governed by a
+held-out statistical test is unattested (Jain+ JMLR'12 give the
+`I + ULUᵀ` identity-plus-low-rank Mahalanobis form to build on). The
+theoretical grounding is now firmer too: Weller et al. (ICLR'26) prove a
+single fixed embedding geometry cannot realize all relevance orderings —
+the formal case for "one embedding, many query-conditioned geometries."
 
 ## 2. The three findings that challenge our design
 
@@ -119,7 +132,12 @@ Metric learning: [Xing+ NIPS'02](https://proceedings.neurips.cc/paper/2002/hash/
 [Ethayarajh EMNLP'19](https://aclanthology.org/D19-1006/) ·
 [Whitening, Su+ '21](https://arxiv.org/abs/2103.15316) ·
 [Search-Adaptor ACL'24](https://aclanthology.org/2024.acl-long.661/) ·
-[Chroma Embedding Adapters](https://research.trychroma.com/embedding-adapters)
+[Chroma Embedding Adapters](https://research.trychroma.com/embedding-adapters) ·
+[Jain+ JMLR'12 (I+ULUᵀ Mahalanobis)](https://arxiv.org/abs/0910.5932) ·
+[DIME SIGIR'24](https://dl.acm.org/doi/10.1145/3626772.3657691) ·
+[Conditional Similarity Networks CVPR'17](https://arxiv.org/abs/1603.07810) ·
+[Drift-Adapter EMNLP'25](https://arxiv.org/abs/2509.23471) ·
+[Embedding-retrieval limits, Weller+ ICLR'26](https://arxiv.org/abs/2508.21038)
 
 Instruction conditioning: [INSTRUCTOR ACL'23](https://arxiv.org/abs/2212.09741) ·
 [TART](https://arxiv.org/abs/2211.09260) ·

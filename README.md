@@ -15,6 +15,15 @@ itself. Storage is general-purpose; retrieval is designed for an LLM
 consumer — structured hits, per-signal score breakdowns, a built-in MCP
 server, and a feedback loop the database learns from.
 
+The use case it is built for is **agent memory**: one store that returns
+the bug fix while the agent is *debugging*, the decision rationale while
+it is *planning*, and the convention while it is *reviewing* — the same
+query, ranked by what the agent is doing — and that sharpens each phase's
+ranking from the agent's own feedback. A normal vector store returns the
+right fact at the wrong moment; this one conditions on the moment. See the
+[agent-memory walkthrough](examples/AGENT_MEMORY.md) (`python
+examples/agent_memory.py`).
+
 ```text
 query: "python"                       query: "python"                       query: "python"
 intent: coding                        intent: wildlife                      intent: comedy
@@ -28,6 +37,22 @@ One SQLite file. Pure Python and NumPy. No services, no model downloads
 required — a deterministic hashing embedder ships in the box, and Ollama
 or sentence-transformers plug in for semantic embeddings.
 
+**Does it work?** On a paired-intent benchmark (`bench/`) — the same query
+under different intents, a different correct answer each time — measured on
+the ambiguous queries where intent is load-bearing, with a real embedder
+(`nomic-embed-text`):
+
+| configuration | top-1 | p-MRR (intent sensitivity) |
+|---|---|---|
+| plain cosine (a normal vector DB) | 44% | +0.000 |
+| **IntentDB (intent-conditioned)** | **96%** | **+0.766** |
+
+Plain cosine is blind to intent by construction — it returns the identical
+ranking whatever the intent, so its p-MRR is exactly zero. A harder track
+(pragmatic intents over a shared-topic corpus) keeps real headroom. See
+[`bench/`](bench/) to reproduce, and [`bench/RESULTS.md`](bench/RESULTS.md)
+for the full ablation grid.
+
 ## Contents
 
 - [Why intent-aware retrieval](#why-intent-aware-retrieval)
@@ -38,6 +63,8 @@ or sentence-transformers plug in for semantic embeddings.
 - [The learning loop](#the-learning-loop)
 - [How it works](#how-it-works)
 - [Embedders](#embedders)
+- [Reranking](#reranking)
+- [Benchmark](#benchmark)
 - [Docker](#docker)
 - [Performance and limitations](#performance-and-limitations)
 - [Research foundations](#research-foundations)
@@ -81,6 +108,7 @@ git clone https://github.com/harsharahul/intent-db
 cd intent-db
 pip install -e .          # library + intentdb CLI
 pip install -e .[dev]     # + pytest
+pip install -e .[rerank]  # + flashrank cross-encoder reranking
 ```
 
 Or use the container image — see [Docker](#docker).
@@ -125,6 +153,7 @@ hit.score, hit.base_score, hit.lensed_score, hit.intent_affinity
 # Optional retrieval upgrades, all local:
 db.query("ECONNREFUSED billing", hybrid=True)      # BM25 + dense, RRF-fused
 db.query("postgres", intent="coding", prf=True)    # pseudo-relevance feedback
+db.query("python", intent="coding", rerank=True)   # cross-encoder rerank stage
 db.query("python", intent="coding",
          where=lambda m: m.get("topic") == "software")   # metadata filter
 ```
@@ -140,6 +169,7 @@ intentdb intent add kb.intentdb debugging \
     --exemplar "why is my service crashing"
 intentdb query kb.intentdb "postgres locks" --intent debugging -k 3
 intentdb query kb.intentdb "ECONNREFUSED" --hybrid --prf
+intentdb query kb.intentdb "postgres locks" --intent debugging --rerank
 intentdb query kb.intentdb "postgres locks" --json
 intentdb explain kb.intentdb "why does my app crash"
 intentdb feedback kb.intentdb "postgres locks" pg-mvcc --intent debugging
@@ -179,6 +209,14 @@ as a retrieval tool:
 | `intentdb_learn_fusion` | Learn per-intent signal weights from feedback |
 | `intentdb_suggest_intents` | Mine the query log for undeclared intents |
 | `intentdb_stats` | Database statistics |
+
+**Agent memory** is the use case this is built for: one store, recalled by
+the agent's current phase (planning / debugging / reviewing), so the same
+query returns the decision rationale, the bug fix, or the review rule
+depending on what the agent is doing — and the store learns each phase's
+ranking from feedback. See
+[`examples/AGENT_MEMORY.md`](examples/AGENT_MEMORY.md) for a runnable demo
+(`python examples/agent_memory.py`) and a Claude Code wiring recipe.
 
 ## The learning loop
 
@@ -261,6 +299,66 @@ dimension mismatches are rejected. Note that small bi-encoders treat
 instructions mostly as additional keywords (a soft topical bias) rather
 than true semantic constraints — the lens and affinity signals carry the
 intent conditioning for those models. See [RESEARCH.md](RESEARCH.md).
+
+## Reranking
+
+`query(rerank=True)` re-scores the top candidates (default 20) with a
+cross-encoder and orders results by that score — the best-documented
+quality jump over pure bi-encoder retrieval. When an intent is active its
+instruction is prefixed to the query before scoring; unlike small
+bi-encoders, a cross-encoder reads the query and document jointly, so
+this is where the intent text actually changes the model's judgment.
+
+| Spec | Description |
+|---|---|
+| `flashrank` (default for `rerank=True`) | ONNX cross-encoders on CPU, no torch (`pip install -e .[rerank]`). The default model, ms-marco-TinyBERT-L-2-v2, is a ~4 MB download on first use. |
+| `crossencoder:model=cross-encoder/ms-marco-MiniLM-L-6-v2` | sentence-transformers cross-encoders (`pip install -e .[sbert]`). |
+
+```python
+db.query("python", intent="coding", rerank=True)
+db.query("python", intent="coding", rerank="crossencoder:model=cross-encoder/ms-marco-MiniLM-L-6-v2",
+         rerank_depth=50)
+```
+
+Reranking composes with `hybrid` and `prf` (it always runs last), respects
+`where` filters, and reports its value on each hit as `rerank_score`.
+Models are loaded once per database instance and cached.
+
+## Benchmark
+
+[`bench/`](bench/) is a paired-intent benchmark: the same query appears
+under several intents with a different correct document each time, so a
+retriever with one fixed geometry cannot satisfy them. It reports an
+ablation grid (plain cosine, inferred intent, each signal in isolation, the
+full blend, and the hybrid/rerank upgrades) with `nDCG@10`, `MRR`, `p-MRR`,
+and `robustness@10`, each with a bootstrap 95% CI, plus a paired bootstrap
+CI on the full-vs-plain delta (significance).
+
+```bash
+python -m bench.run                                          # both tracks, deterministic
+python -m bench.run --embedder ollama:model=nomic-embed-text # semantic embedder
+python -m bench.run --embedder hashing:dim=512,ollama:model=nomic-embed-text
+```
+
+Two tracks:
+
+- **Easy** — topical ambiguity (`python` the snake vs. the language). A
+  diagonal lens solves it by gating topic dimensions, so the full stack
+  nearly saturates: **plain cosine 44% → intent 96% top-1** on the
+  ambiguous slice (nomic-embed-text), delta +0.21 nDCG@10 [+0.13, +0.29],
+  significant. The honest finding here: with a well-fit lens the **lens
+  alone** carries the gain, and stacking hybrid/rerank on top *dilutes* an
+  already-strong signal — the argument for learned, per-intent fusion over
+  blind signal-stacking.
+- **Hard** — pragmatic intents (`tutorial` / `reference` / `troubleshooting`
+  / `concept`) over a shared-topic corpus, where every document for a topic
+  shares its vocabulary so the intent, not the query, must pick the answer.
+  This leaves headroom: the full stack reaches **62% top-1 / 0.80 nDCG@10**
+  (nomic), well below ceiling, with the diagonal lens doing most of the work
+  and roughly twenty points still open for future ranking refinements such
+  as per-intent low-rank query adapters.
+
+Full numbers in [`bench/RESULTS.md`](bench/RESULTS.md).
 
 ## Docker
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "intentdb"
-version = "0.1.0"
+version = "0.2.0"
 description = "A local-first, intent-aware vector database: retrieval conditioned on intent, built for LLM consumption."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -16,6 +16,7 @@ dependencies = ["numpy>=1.24"]
 dev = ["pytest>=7"]
 ollama = []          # uses stdlib urllib against a local Ollama server
 sbert = ["sentence-transformers>=2.2"]
+rerank = ["flashrank>=0.2"]
 
 [project.scripts]
 intentdb = "intentdb.cli:main"
@@ -25,3 +26,5 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# make the top-level bench/ harness importable from tests without installing it
+pythonpath = ["."]

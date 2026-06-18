@@ -1,8 +1,11 @@
 __pycache__/
 *.egg-info/
+.venv/
 .pytest_cache/
 *.intentdb*
 build/
 dist/
+.playwright-mcp/
+*-preview.png
 PLAN.md
 HANDOFF.md
