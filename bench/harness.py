@@ -65,8 +65,8 @@ def sample_feedback(data, intent: str, n: int, seed: int = 0) -> list[tuple[str,
     """Sample up to ``n`` (query, relevant-doc) training pairs for an intent.
 
     Drawn from ``data.TRAIN_CASES`` (disjoint from the eval ``CASES``), this
-    is the feedback signal a feedback-driven model — for example a per-intent
-    low-rank adapter — fits on. Deterministic for a fixed ``seed``; sweeping
+    is the feedback signal a feedback-driven model, for example a per-intent
+    low-rank adapter, fits on. Deterministic for a fixed ``seed``; sweeping
     ``n`` traces how retrieval improves with accumulated feedback.
     """
     import numpy as np
@@ -82,7 +82,7 @@ def sample_feedback(data, intent: str, n: int, seed: int = 0) -> list[tuple[str,
 def paired_cases(cases) -> list:
     """Keep only cases whose query appears under more than one intent.
 
-    These are the ambiguous queries where intent is load-bearing — the
+    These are the ambiguous queries where intent is load-bearing, the
     same query string has different gold documents per intent, so a single
     fixed ranking cannot satisfy all of them.
     """

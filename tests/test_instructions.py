@@ -10,7 +10,7 @@ class InstructionAwareStub(HashingEmbedder):
     """Hashing embedder that honors instructions, for testing the wiring.
 
     Conditioning simply folds the instruction text into the query, which
-    shifts the lexical vector toward the instruction's vocabulary — the
+    shifts the lexical vector toward the instruction's vocabulary, the
     same mechanism real instruction-aware embedders use semantically.
     """
 

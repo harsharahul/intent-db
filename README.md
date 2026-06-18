@@ -12,13 +12,13 @@ conditional on *intent*: the same corpus and the same query return
 different results depending on what the asker is trying to do. When no
 intent is declared, the most plausible one is inferred from the query
 itself. Storage is general-purpose; retrieval is designed for an LLM
-consumer — structured hits, per-signal score breakdowns, a built-in MCP
+consumer: structured hits, per-signal score breakdowns, a built-in MCP
 server, and a feedback loop the database learns from.
 
 The use case it is built for is **agent memory**: one store that returns
 the bug fix while the agent is *debugging*, the decision rationale while
-it is *planning*, and the convention while it is *reviewing* — the same
-query, ranked by what the agent is doing — and that sharpens each phase's
+it is *planning*, and the convention while it is *reviewing*. The same
+query, ranked by what the agent is doing, sharpens each phase's
 ranking from the agent's own feedback. A normal vector store returns the
 right fact at the wrong moment; this one conditions on the moment. See the
 [agent-memory walkthrough](examples/AGENT_MEMORY.md) (`python
@@ -34,12 +34,12 @@ intent: coding                        intent: wildlife                      inte
 ```
 
 One SQLite file. Pure Python and NumPy. No services, no model downloads
-required — a deterministic hashing embedder ships in the box, and Ollama
+required. A deterministic hashing embedder ships in the box, and Ollama
 or sentence-transformers plug in for semantic embeddings.
 
-**Does it work?** On a paired-intent benchmark (`bench/`) — the same query
-under different intents, a different correct answer each time — measured on
-the ambiguous queries where intent is load-bearing, with a real embedder
+**Does it work?** On a paired-intent benchmark (`bench/`) where the same
+query under different intents has a different correct answer each time,
+measured on the ambiguous queries where intent is load-bearing, with a real embedder
 (`nomic-embed-text`):
 
 | configuration | top-1 | p-MRR (intent sensitivity) |
@@ -47,7 +47,7 @@ the ambiguous queries where intent is load-bearing, with a real embedder
 | plain cosine (a normal vector DB) | 44% | +0.000 |
 | **IntentDB (intent-conditioned)** | **96%** | **+0.766** |
 
-Plain cosine is blind to intent by construction — it returns the identical
+Plain cosine is blind to intent by construction: it returns the identical
 ranking whatever the intent, so its p-MRR is exactly zero. A harder track
 (pragmatic intents over a shared-topic corpus) keeps real headroom. See
 [`bench/`](bench/) to reproduce, and [`bench/RESULTS.md`](bench/RESULTS.md)
@@ -75,7 +75,7 @@ for the full ablation grid.
 The same query rarely means one thing. "python" is a language, a snake,
 and a comedy troupe; "java" is code, coffee, and an island. A plain vector
 database collapses all of those into one similarity ranking. The standard
-workarounds — rewriting queries by hand, separate collections per topic —
+workarounds (rewriting queries by hand, separate collections per topic)
 push the problem onto the caller.
 
 IntentDB instead makes intent a first-class, registered object. Each
@@ -111,7 +111,7 @@ pip install -e .[dev]     # + pytest
 pip install -e .[rerank]  # + flashrank cross-encoder reranking
 ```
 
-Or use the container image — see [Docker](#docker).
+Or use the container image (see [Docker](#docker)).
 
 ## Quick start
 
@@ -213,7 +213,7 @@ as a retrieval tool:
 **Agent memory** is the use case this is built for: one store, recalled by
 the agent's current phase (planning / debugging / reviewing), so the same
 query returns the decision rationale, the bug fix, or the review rule
-depending on what the agent is doing — and the store learns each phase's
+depending on what the agent is doing, and the store learns each phase's
 ranking from feedback. See
 [`examples/AGENT_MEMORY.md`](examples/AGENT_MEMORY.md) for a runnable demo
 (`python examples/agent_memory.py`) and a Claude Code wiring recipe.
@@ -226,7 +226,7 @@ IntentDB improves from use, entirely locally:
    out for automated traffic).
 2. **Intent mining.** `suggest_intents()` clusters the queries that ran
    without a declared intent and proposes new intents with exemplar
-   queries — an LLM or a human names them and calls `register_intent`.
+   queries; an LLM or a human names them and calls `register_intent`.
 3. **Relevance feedback.** The consumer reports which results were
    actually useful via `record_feedback(query, doc_key, useful, intent)`.
 4. **Learned fusion.** `learn_fusion_weights()` fits each intent's blend
@@ -280,7 +280,7 @@ Design decisions worth knowing:
   in a corpus-standardized basis so gates measure intent, not artifacts.
 - **Double shrinkage.** Gates shrink toward the identity when an intent
   has few exemplars, and the corpus statistics themselves shrink toward
-  the raw basis when the collection is small — both estimators are only
+  the raw basis when the collection is small. Both estimators are only
   trusted in proportion to their data.
 - **Asymmetric lensed similarity.** The document side keeps its base norm;
   re-normalizing documents in the lensed space would penalize documents
@@ -297,13 +297,13 @@ Design decisions worth knowing:
 The embedder spec is stored inside the database and restored on reopen;
 dimension mismatches are rejected. Note that small bi-encoders treat
 instructions mostly as additional keywords (a soft topical bias) rather
-than true semantic constraints — the lens and affinity signals carry the
+than true semantic constraints. The lens and affinity signals carry the
 intent conditioning for those models. See [REFERENCES.md](REFERENCES.md).
 
 ## Reranking
 
 `query(rerank=True)` re-scores the top candidates (default 20) with a
-cross-encoder and orders results by that score — the best-documented
+cross-encoder and orders results by that score, the best-documented
 quality jump over pure bi-encoder retrieval. When an intent is active its
 instruction is prefixed to the query before scoring; unlike small
 bi-encoders, a cross-encoder reads the query and document jointly, so
@@ -342,15 +342,15 @@ python -m bench.run --embedder hashing:dim=512,ollama:model=nomic-embed-text
 
 Two tracks:
 
-- **Easy** — topical ambiguity (`python` the snake vs. the language). A
+- **Easy**: topical ambiguity (`python` the snake vs. the language). A
   diagonal lens solves it by gating topic dimensions, so the full stack
   nearly saturates: **plain cosine 44% → intent 96% top-1** on the
   ambiguous slice (nomic-embed-text), delta +0.21 nDCG@10 [+0.13, +0.29],
   significant. The honest finding here: with a well-fit lens the **lens
   alone** carries the gain, and stacking hybrid/rerank on top *dilutes* an
-  already-strong signal — the argument for learned, per-intent fusion over
+  already-strong signal. That argues for learned, per-intent fusion over
   blind signal-stacking.
-- **Hard** — pragmatic intents (`tutorial` / `reference` / `troubleshooting`
+- **Hard**: pragmatic intents (`tutorial` / `reference` / `troubleshooting`
   / `concept`) over a shared-topic corpus, where every document for a topic
   shares its vocabulary so the intent, not the query, must pick the answer.
   This leaves headroom: the full stack reaches **62% top-1 / 0.80 nDCG@10**

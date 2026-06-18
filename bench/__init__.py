@@ -6,6 +6,6 @@ well. This package measures how much each retrieval signal (lens,
 affinity, hybrid BM25, cross-encoder rerank) contributes, with standard
 IR metrics and bootstrap confidence intervals.
 
-Not part of the shipped library — a research/CI tool. Run it with
+Not part of the shipped library, a research/CI tool. Run it with
 ``python -m bench.run`` (see ``bench/README.md``).
 """

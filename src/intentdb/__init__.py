@@ -1,4 +1,4 @@
-"""IntentDB — a local-first, intent-aware vector database.
+"""IntentDB, a local-first, intent-aware vector database.
 
 A vector database with an extra dimension: *intent*. Documents are embedded
 once into a base vector space, but every registered intent defines a "lens"

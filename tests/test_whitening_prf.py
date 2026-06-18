@@ -48,7 +48,7 @@ def test_standardize_removes_shared_offset():
 def test_lens_fit_on_standardized_basis_ignores_rogue_dimension():
     """A rogue dimension (large offset shared by the whole corpus) must not
     carry the peak gate once exemplars are standardized against
-    corpus-scale statistics — but it dominates a raw-basis fit."""
+    corpus-scale statistics, but it dominates a raw-basis fit."""
     rng = np.random.default_rng(3)
     dim, rogue = 64, 0
     corpus = rng.normal(scale=0.1, size=(2000, dim))

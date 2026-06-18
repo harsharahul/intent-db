@@ -2,7 +2,7 @@
 
 Every query the database answers is logged (text + which intent, if any,
 was active). Queries that arrive without a confident intent are the
-interesting ones — recurring themes among them are intents the user has
+interesting ones, recurring themes among them are intents the user has
 but never declared. ``mine_intents`` clusters their embeddings with
 spherical k-means and returns, per cluster, representative queries ready
 to be used as ``exemplars`` for :meth:`IntentDB.register_intent` (an LLM
@@ -70,7 +70,7 @@ def mine_intents(
 
     Duplicate texts are collapsed before clustering (a query asked ten
     times should weigh as a theme, not dominate a centroid by sheer count
-    — its presence is already captured by the dedup'd member).
+, its presence is already captured by the dedup'd member).
     """
     seen: dict[str, int] = {}
     for i, t in enumerate(texts):
@@ -82,7 +82,7 @@ def mine_intents(
         return []
     uniq_texts = [texts[i] for i in idx]
     mat = vectors[idx]
-    # drop zero vectors (empty queries) — they carry no theme
+    # drop zero vectors (empty queries), they carry no theme
     norms = np.linalg.norm(mat, axis=1)
     keep = norms > 0
     uniq_texts = [t for t, m in zip(uniq_texts, keep) if m]

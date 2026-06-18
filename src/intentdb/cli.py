@@ -171,7 +171,7 @@ def cmd_suggest_intents(args: argparse.Namespace) -> int:
             k=args.k, min_cluster_size=args.min_cluster_size
         )
     if not suggestions:
-        print("(no suggestions yet — the query log needs more undeclared queries)")
+        print("(no suggestions yet, the query log needs more undeclared queries)")
         return 0
     print(json.dumps([s.to_dict() for s in suggestions], indent=2))
     return 0

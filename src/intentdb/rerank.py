@@ -3,18 +3,18 @@
 A reranker scores ``(query, document)`` text pairs jointly with a
 cross-encoder, which reads both texts at once instead of comparing
 pre-computed vectors. Reranking the top candidates is the
-best-documented quality jump over bi-encoder retrieval, and — unlike
-small bi-encoders, which largely ignore instructions — a cross-encoder
+best-documented quality jump over bi-encoder retrieval, and, unlike
+small bi-encoders, which largely ignore instructions, a cross-encoder
 actually attends to intent text injected into the pair, so
 :meth:`intentdb.db.IntentDB.query` prefixes the query with the active
 intent's instruction before reranking.
 
 Built-in rerankers (both optional dependencies):
 
-- ``flashrank`` — ONNX cross-encoders on CPU via the ``flashrank``
+- ``flashrank``, ONNX cross-encoders on CPU via the ``flashrank``
   package; the default model (ms-marco-TinyBERT-L-2-v2) is ~4 MB.
   ``pip install intentdb[rerank]``
-- ``crossencoder`` — sentence-transformers ``CrossEncoder`` models,
+- ``crossencoder``, sentence-transformers ``CrossEncoder`` models,
   e.g. ``cross-encoder/ms-marco-MiniLM-L-6-v2``.
   ``pip install intentdb[sbert]``
 """

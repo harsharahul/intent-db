@@ -3,7 +3,7 @@
 Most agent-memory tools store memories and rank them by similarity to the
 query. IntentDB adds the missing coordinate: the agent's **current goal**.
 The same memory store returns a different memory depending on whether the
-agent is *planning*, *debugging*, or *reviewing* — and it learns which
+agent is *planning*, *debugging*, or *reviewing*, and it learns which
 memories are useful in each phase from the agent's own feedback.
 
 This is the use case intent conditioning is built for. The agent declares
@@ -17,7 +17,7 @@ python examples/agent_memory.py
 ```
 
 ```
-query: "storage"  — same store, recall depends on the phase
+query: "storage", same store, recall depends on the phase
   [planning ] (plan-storage) Storage design decision: we chose SQLite in WAL mode and rejected Postgres...
   [debugging] (bug-storage)  Storage bug: a query returned stale results after a write and the error...
   [reviewing] (rule-storage) Storage review rule: every schema change must follow the migration...
@@ -29,7 +29,7 @@ feedback loop (debugging phase):
   learned weights : lensed 0.22 affinity 0.69 base 0.09  (from 19 feedback marks)
 ```
 
-One query, three phases, three memories — and after the agent reports what
+One query, three phases, three memories, and after the agent reports what
 it used, the database shifts weight onto the signal that actually carries
 the phase (affinity). Plain similarity search returns the same ranking
 every time, regardless of what the agent is doing; that is the gap this
@@ -37,7 +37,7 @@ fills.
 
 > The demo uses the zero-dependency hashing embedder, so its memories are
 > written with explicit phase vocabulary ("Bug… root cause… fixed",
-> "Decided… rejected") — which is how an agent naturally writes them. For
+> "Decided… rejected"), which is how an agent naturally writes them. For
 > free-form phrasing, use a semantic embedder
 > (`ollama:model=nomic-embed-text` or `sbert:...`); phase recall is much
 > more robust there.

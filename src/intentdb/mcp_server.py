@@ -2,7 +2,7 @@
 
 This is the "retrieval is for an LLM" half of the design: any MCP-capable
 client (Claude Code, Claude Desktop, local agent frameworks, etc.) can
-mount an IntentDB file as a retrieval tool. Pure standard library —
+mount an IntentDB file as a retrieval tool. Pure standard library,
 JSON-RPC 2.0 over stdin/stdout, MCP protocol version 2024-11-05.
 
 Claude Code example (.mcp.json)::
@@ -32,7 +32,7 @@ TOOLS: list[dict[str, Any]] = [
         "name": "intentdb_query",
         "description": (
             "Search the intent-aware database. Optionally retrieve under a "
-            "named intent — the same query returns different results for "
+            "named intent, the same query returns different results for "
             "different intents. If no intent is given, the most plausible "
             "one is inferred from the query."
         ),

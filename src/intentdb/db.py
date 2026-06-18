@@ -5,13 +5,13 @@ Retrieval scoring
 For a query vector ``q`` (unit norm) and a document vector ``d`` (unit
 norm), with an active intent ``I`` (vector ``t``, lens gate ``g``):
 
-- ``base    = cos(q, d)``                     — ordinary vector search
-- ``lensed  = <q*g, d*g> / |q*g|``            — query-document overlap with
+- ``base    = cos(q, d)``, ordinary vector search
+- ``lensed  = <q*g, d*g> / |q*g|``, query-document overlap with
   intent-characteristic dimensions amplified (cosine in the lensed space on
   the query side; the document keeps its base norm so it is not penalized
   for carrying intent-relevant content). Computed as ``<q*g^2, d> / |q*g|``
   so the whole collection costs one matrix-vector product.
-- ``affinity = cos(d, t)``                    — how much the document
+- ``affinity = cos(d, t)``, how much the document
   belongs to the intent at all, regardless of the query
 
 ``score = w_lensed * lensed + w_affinity * affinity + w_base * base``
@@ -188,7 +188,7 @@ class IntentDB:
         self._loaded = True
 
     #: corpus-stat shrinkage: stats only reach full strength once the
-    #: collection is a few hundred documents — mu/sigma estimated from a
+    #: collection is a few hundred documents, mu/sigma estimated from a
     #: handful of docs would make "absence of a term" a matchable feature
     STATS_PSEUDO_COUNT = 250
 
@@ -461,7 +461,7 @@ class IntentDB:
             ``"crossencoder:model=..."`` or a
             :class:`~intentdb.rerank.Reranker` instance selects another.
             When an intent is active its instruction is prefixed to the
-            query for the cross-encoder — joint (query, doc) scoring is
+            query for the cross-encoder, joint (query, doc) scoring is
             where small models actually use intent text. ``score`` then
             holds the reranker's value (as with ``hybrid`` and RRF);
             only reranked candidates are returned.
@@ -643,7 +643,7 @@ class IntentDB:
 
         Moves the query toward the score-weighted centroid of on-intent
         feedback documents and (when an intent is active) away from
-        off-intent ones — the classic Rocchio update with the first-pass
+        off-intent ones, the classic Rocchio update with the first-pass
         retrieval score standing in for graded relevance and the intent
         affinity splitting positive from negative feedback. Pure vector
         arithmetic over vectors already in memory; the index is untouched.

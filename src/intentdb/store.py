@@ -4,10 +4,10 @@ single matrix-vector product at query time.
 
 Schema
 ------
-- ``meta``        — key/value store: schema version, embedder spec, dim.
-- ``documents``   — text, JSON metadata, and the base float32 vector blob.
-- ``intents``     — description, exemplars, intent vector, lens gate.
-- ``doc_intent``  — per (doc, intent): affinity = cos(doc, intent),
+- ``meta``, key/value store: schema version, embedder spec, dim.
+- ``documents``, text, JSON metadata, and the base float32 vector blob.
+- ``intents``, description, exemplars, intent vector, lens gate.
+- ``doc_intent``, per (doc, intent): affinity = cos(doc, intent),
                     precomputed at ingest so retrieval never re-embeds.
 """
 
