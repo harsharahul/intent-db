@@ -60,6 +60,25 @@ TOOLS: list[dict[str, Any]] = [
                     "description": "pseudo-relevance feedback (Rocchio query refinement)",
                     "default": False,
                 },
+                "rerank": {
+                    "type": "boolean",
+                    "description": (
+                        "re-score top candidates with a cross-encoder (requires "
+                        "the optional flashrank dependency)"
+                    ),
+                    "default": False,
+                },
+                "reranker": {
+                    "type": "string",
+                    "description": (
+                        'reranker spec, e.g. "crossencoder:model=..." (implies rerank)'
+                    ),
+                },
+                "rerank_depth": {
+                    "type": "integer",
+                    "description": "how many top candidates the reranker re-scores",
+                    "default": 20,
+                },
             },
             "required": ["query"],
         },
@@ -180,6 +199,8 @@ def call_tool(db: IntentDB, name: str, arguments: dict[str, Any]) -> Any:
             auto_intent=bool(arguments.get("auto_intent", True)),
             hybrid=bool(arguments.get("hybrid", False)),
             prf=bool(arguments.get("prf", False)),
+            rerank=arguments.get("reranker") or bool(arguments.get("rerank", False)),
+            rerank_depth=int(arguments.get("rerank_depth", 20)),
         )
         return [r.to_dict() for r in results]
     if name == "intentdb_add":
@@ -238,7 +259,7 @@ def handle_message(db: IntentDB, msg: dict[str, Any]) -> dict[str, Any] | None:
             "result": {
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "intentdb", "version": "0.1.0"},
+                "serverInfo": {"name": "intentdb", "version": "0.2.0"},
             },
         }
     if method in ("notifications/initialized", "notifications/cancelled"):

@@ -23,6 +23,7 @@ Quick start::
 from .db import IntentDB, QueryResult
 from .embedders import Embedder, HashingEmbedder, get_embedder
 from .intent import Intent, IntentLens
+from .rerank import Reranker, get_reranker
 
 __all__ = [
     "IntentDB",
@@ -32,6 +33,8 @@ __all__ = [
     "get_embedder",
     "Intent",
     "IntentLens",
+    "Reranker",
+    "get_reranker",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

@@ -121,6 +121,8 @@ def cmd_query(args: argparse.Namespace) -> int:
             auto_intent=not args.no_auto_intent,
             hybrid=args.hybrid,
             prf=args.prf,
+            rerank=args.reranker or args.rerank,
+            rerank_depth=args.rerank_depth,
         )
     if args.json:
         print(json.dumps([r.to_dict() for r in results], indent=2))
@@ -138,11 +140,16 @@ def cmd_query(args: argparse.Namespace) -> int:
             snippet = snippet[:97] + "..."
         line = f"{i}. [{r.score:+.4f}] {r.doc_key}: {snippet}"
         print(line)
+        details = []
         if used:
-            print(
-                f"     base={r.base_score:+.4f}  lensed={r.lensed_score:+.4f}"
+            details.append(
+                f"base={r.base_score:+.4f}  lensed={r.lensed_score:+.4f}"
                 f"  affinity={r.intent_affinity:+.4f}"
             )
+        if r.rerank_score is not None:
+            details.append(f"rerank={r.rerank_score:+.4f}")
+        if details:
+            print("     " + "  ".join(details))
     return 0
 
 
@@ -294,6 +301,24 @@ def build_parser() -> argparse.ArgumentParser:
         "--prf",
         action="store_true",
         help="pseudo-relevance feedback: refine the query toward top results",
+    )
+    sp.add_argument(
+        "--rerank",
+        action="store_true",
+        help="re-score top candidates with a cross-encoder "
+        "(requires the optional flashrank dependency: pip install intentdb[rerank])",
+    )
+    sp.add_argument(
+        "--reranker",
+        help='reranker spec, e.g. "flashrank:model=ms-marco-TinyBERT-L-2-v2" '
+        'or "crossencoder:model=cross-encoder/ms-marco-MiniLM-L-6-v2" '
+        "(implies --rerank)",
+    )
+    sp.add_argument(
+        "--rerank-depth",
+        type=int,
+        default=20,
+        help="how many top candidates the reranker re-scores",
     )
     sp.add_argument("--json", action="store_true", help="machine-readable output")
     sp.set_defaults(func=cmd_query)

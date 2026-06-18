@@ -42,6 +42,7 @@ from .intent import (
 )
 from .lexical import BM25Index, rrf_fuse
 from .mining import IntentSuggestion, mine_intents
+from .rerank import DEFAULT_RERANKER_SPEC, Reranker, get_reranker
 from .store import Store
 
 #: Default blend of the three scoring signals.
@@ -60,6 +61,7 @@ class QueryResult:
     lensed_score: float | None = None
     intent_affinity: float | None = None
     lexical_score: float | None = None
+    rerank_score: float | None = None
     intent: str | None = None
     intent_inferred: bool = False
     intent_scores: dict[str, float] = field(default_factory=dict)
@@ -79,6 +81,8 @@ class QueryResult:
             out["intent_affinity"] = round(self.intent_affinity, 6)
         if self.lexical_score is not None:
             out["lexical_score"] = round(self.lexical_score, 6)
+        if self.rerank_score is not None:
+            out["rerank_score"] = round(self.rerank_score, 6)
         return out
 
 
@@ -137,6 +141,8 @@ class IntentDB:
         self._lens_scale: dict[str, float] = {}
         # per intent: fusion weights learned from relevance feedback
         self._fusion_weights: dict[str, dict[str, float]] = {}
+        # rerankers built on demand, cached by spec (models load once)
+        self._rerankers: dict[str, Reranker] = {}
 
     # -- lifecycle ------------------------------------------------------------
 
@@ -421,6 +427,8 @@ class IntentDB:
         hybrid: bool = False,
         prf: bool = False,
         prf_depth: int = 5,
+        rerank: bool | str | Reranker = False,
+        rerank_depth: int = 20,
         log: bool = True,
     ) -> list[QueryResult]:
         """Retrieve the top-``k`` documents for a query.
@@ -445,6 +453,18 @@ class IntentDB:
             on-intent documents (and away from off-intent ones when an
             intent is active), then rescore. Costs one extra pass; no
             training, no index changes.
+        rerank:
+            Re-score the top ``rerank_depth`` candidates with a
+            cross-encoder and order results by that score. ``True`` uses
+            the default reranker (flashrank, an optional dependency:
+            ``pip install intentdb[rerank]``); a spec string such as
+            ``"crossencoder:model=..."`` or a
+            :class:`~intentdb.rerank.Reranker` instance selects another.
+            When an intent is active its instruction is prefixed to the
+            query for the cross-encoder — joint (query, doc) scoring is
+            where small models actually use intent text. ``score`` then
+            holds the reranker's value (as with ``hybrid`` and RRF);
+            only reranked candidates are returned.
         log:
             Record the query in the query log (used by
             :meth:`suggest_intents`). Disable for automated traffic.
@@ -522,16 +542,34 @@ class IntentDB:
             self.store.log_query(text, active.name if active else None, inferred)
 
         order = np.argsort(scores)[::-1]
+        if where is not None:
+            order = np.array(
+                [pos for pos in order if where(self._metas[pos])], dtype=int
+            )
+
+        rerank_by_pos: dict[int, float] = {}
+        if rerank:
+            reranker = self._resolve_reranker(rerank)
+            window = order[: max(rerank_depth, k)]
+            rerank_text = text
+            if active is not None and active.instruction:
+                rerank_text = f"{active.instruction.strip()}: {text}"
+            rerank_scores = reranker.scores(
+                rerank_text, [self._texts[pos] for pos in window]
+            )
+            rerank_by_pos = {
+                int(pos): float(s) for pos, s in zip(window, rerank_scores)
+            }
+            order = window[np.argsort(rerank_scores)[::-1]]
+
         results: list[QueryResult] = []
         for pos in order:
-            if where is not None and not where(self._metas[pos]):
-                continue
             results.append(
                 QueryResult(
                     doc_key=self._keys[pos],
                     text=self._texts[pos],
                     metadata=self._metas[pos],
-                    score=float(scores[pos]),
+                    score=rerank_by_pos.get(int(pos), float(scores[pos])),
                     base_score=float(base[pos]),
                     lensed_score=float(lensed[pos]) if lensed is not None else None,
                     intent_affinity=(
@@ -540,6 +578,7 @@ class IntentDB:
                     lexical_score=(
                         float(lexical[pos]) if lexical is not None else None
                     ),
+                    rerank_score=rerank_by_pos.get(int(pos)),
                     intent=active.name if active else None,
                     intent_inferred=inferred,
                     intent_scores=intent_scores,
@@ -548,6 +587,15 @@ class IntentDB:
             if len(results) >= k:
                 break
         return results
+
+    def _resolve_reranker(self, rerank: bool | str | Reranker) -> Reranker:
+        """Turn the ``rerank`` argument into a Reranker, caching by spec."""
+        if isinstance(rerank, Reranker):
+            return rerank
+        spec = DEFAULT_RERANKER_SPEC if rerank is True else str(rerank)
+        if spec not in self._rerankers:
+            self._rerankers[spec] = get_reranker(spec)
+        return self._rerankers[spec]
 
     def _score_pass(
         self,
