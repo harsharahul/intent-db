@@ -25,7 +25,7 @@ All notable changes to IntentDB are documented here, following
 ### Changed
 - README now opens with the agent-memory use case and the benchmark
   results.
-- Expanded the citations and literature review in `RESEARCH.md`.
+- Added a curated references list (`REFERENCES.md`).
 
 ## [0.1.0] - 2026-06
 

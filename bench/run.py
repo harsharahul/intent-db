@@ -132,7 +132,8 @@ def render_markdown(matrix: list[tuple[str, str, dict]], configs: list[str]) -> 
         "- The significance line is a paired bootstrap CI on the per-case "
         "nDCG@10 difference between the full stack and plain cosine.",
         "- Rerank rows use FlashRank's TinyBERT — topical steering from the "
-        "injected intent text, not true instruction following (see RESEARCH.md).",
+        "injected intent text, not true instruction following (see FollowIR "
+        "in REFERENCES.md).",
         "- The hard track's headroom (the full stack well below 1.0) leaves "
         "room for future ranking refinements such as per-intent low-rank adapters.",
     ]
