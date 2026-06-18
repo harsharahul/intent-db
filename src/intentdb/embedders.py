@@ -7,14 +7,14 @@ was built with.
 
 Built-in embedders:
 
-- ``hashing`` — deterministic feature-hashing embedder with zero external
+- ``hashing``, deterministic feature-hashing embedder with zero external
   dependencies. No model download, no network, fully reproducible. Quality
   is lexical (token/character-n-gram overlap), which is plenty for tests,
   demos, and keyword-ish corpora.
-- ``ollama`` — calls a local Ollama server (``/api/embeddings``) using only
+- ``ollama``, calls a local Ollama server (``/api/embeddings``) using only
   the standard library. Use any embedding model you have pulled, e.g.
   ``ollama:model=nomic-embed-text``.
-- ``sbert`` — sentence-transformers models, e.g.
+- ``sbert``, sentence-transformers models, e.g.
   ``sbert:model=all-MiniLM-L6-v2`` (requires the optional dependency).
 """
 

@@ -3,14 +3,14 @@
 IntentDB blends three dense signals (lensed, affinity, base) with fixed
 default weights. Bruch, Gai & Ingber (ACM TOIS 2023) showed that a tuned
 convex combination of normalized scores beats rank-only fusion in- and
-out-of-domain and is sample-efficient — a small number of labeled
+out-of-domain and is sample-efficient, a small number of labeled
 examples suffices because there is only one parameter per signal.
 
 This module learns those weights from recorded feedback: pairs of
 (signal vector of a useful document, signal vector of a non-useful
 document) for the same query. A tiny logistic regression on the pairwise
 differences (Bradley-Terry style) yields weights, which are clipped to be
-non-negative and normalized to sum to 1 — keeping the result a convex
+non-negative and normalized to sum to 1, keeping the result a convex
 combination on the same scale as the defaults, so learned and default
 intents stay comparable.
 """
@@ -38,7 +38,7 @@ def learn_weights(
 
     Each pair is ``(signals_of_useful_doc, signals_of_other_doc)`` for the
     same query, with signals ordered as :data:`SIGNALS`. Returns a weight
-    dict, or ``None`` when there is not enough (or degenerate) data — the
+    dict, or ``None`` when there is not enough (or degenerate) data, the
     caller keeps the defaults in that case.
 
     The model is logistic regression on score differences with L2 pull

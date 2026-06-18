@@ -21,7 +21,7 @@ def test_lens_single_example_degrades_gracefully():
 
 
 def test_lensed_norm_identity_trick():
-    """<q*g, d*g> must equal <q*g^2, d> — the optimization used at query time."""
+    """<q*g, d*g> must equal <q*g^2, d>, the optimization used at query time."""
     rng = np.random.default_rng(1)
     lens = IntentLens.fit(rng.normal(size=(4, 48)))
     q = rng.normal(size=48)

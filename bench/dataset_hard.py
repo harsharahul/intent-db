@@ -2,9 +2,9 @@
 
 The easy track (``dataset.py``) tests *topical* ambiguity ("python" the
 snake vs. the language), which a diagonal lens solves by gating topic
-dimensions — hence the near-ceiling scores. This track is harder: for each
-technical topic there are four documents — a *tutorial*, an *api
-reference*, a *troubleshooting* note, and a *conceptual* explanation —
+dimensions, hence the near-ceiling scores. This track is harder: for each
+technical topic there are four documents, a *tutorial*, an *api
+reference*, a *troubleshooting* note, and a *conceptual* explanation,
 that all share the topic's vocabulary. The query names the topic; only the
 intent (the pragmatic flavor) can pick the right document. The flavor is
 carried implicitly by the prose, not by a "Tutorial:" label, so separating
@@ -29,9 +29,9 @@ GRID: dict[str, dict[str, str]] = {
     "groupby": {
         "label": "groupby",
         "query": "dataframe groupby aggregation",
-        "tutorial": "Start by calling groupby on the column you want to aggregate over, then chain an aggregation like sum or mean, and finally reset_index to get a flat frame back — try it on a small sample first.",
+        "tutorial": "Start by calling groupby on the column you want to aggregate over, then chain an aggregation like sum or mean, and finally reset_index to get a flat frame back, try it on a small sample first.",
         "reference": "DataFrame.groupby(by, axis=0, level=None, as_index=True, sort=True) returns a GroupBy object; aggregate with .agg, .sum, .mean, or .apply, and pass as_index=False to keep the grouping columns.",
-        "troubleshooting": "If groupby drops rows, NaN keys are excluded by default — pass dropna=False; if the result is unexpectedly a Series instead of a frame, you selected a single column before aggregating.",
+        "troubleshooting": "If groupby drops rows, NaN keys are excluded by default, pass dropna=False; if the result is unexpectedly a Series instead of a frame, you selected a single column before aggregating.",
         "concept": "groupby follows a split-apply-combine model: rows are partitioned by key, a function runs per partition, and the pieces are stitched back together, which is why such aggregations vectorize well.",
     },
     "async": {
@@ -45,7 +45,7 @@ GRID: dict[str, dict[str, str]] = {
     "regex": {
         "label": "regular expressions",
         "query": "regular expression matching",
-        "tutorial": "Begin with literal characters, add a character class such as a digit class, then group with parentheses and repeat with quantifiers — build the pattern up one piece at a time in a tester.",
+        "tutorial": "Begin with literal characters, add a character class such as a digit class, then group with parentheses and repeat with quantifiers, build the pattern up one piece at a time in a tester.",
         "reference": "re.compile(pattern, flags) returns a Pattern; .match anchors at the start, .search scans anywhere, .findall returns all non-overlapping matches, and captured groups are referenced by number or by name.",
         "troubleshooting": "A catastrophically slow regular expression usually comes from nested quantifiers that backtrack exponentially; flatten the pattern or make the quantifier possessive to avoid the blowup.",
         "concept": "A regular expression denotes a set of strings recognized by a finite automaton; the engine walks states as it consumes characters, which explains both its speed and its backtracking pitfalls.",
@@ -53,7 +53,7 @@ GRID: dict[str, dict[str, str]] = {
     "compose": {
         "label": "docker compose",
         "query": "docker compose services",
-        "tutorial": "Write a compose file listing each service and its image, declare the ports and volumes, then bring the whole stack up with one up command — add services one at a time and test as you go.",
+        "tutorial": "Write a compose file listing each service and its image, declare the ports and volumes, then bring the whole stack up with one up command, add services one at a time and test as you go.",
         "reference": "A compose file has a services map; each service takes image, build, ports as host:container, volumes, environment, and depends_on; the up command runs the stack and down tears it all back down.",
         "troubleshooting": "If one service cannot reach another, use the service name as the hostname, not localhost; if a port is already allocated, another process holds it, so change the host side of the port mapping.",
         "concept": "Compose declares a multi-container application as a single file: it creates a shared network so services find each other by name, modeling the deployment as one declarative unit instead of ad-hoc run commands.",
@@ -77,15 +77,15 @@ GRID: dict[str, dict[str, str]] = {
     "flexbox": {
         "label": "CSS flexbox",
         "query": "css flexbox layout",
-        "tutorial": "Set the container to display flex, choose a direction, then align the children with the main-axis and cross-axis alignment properties — change one property at a time to watch the effect.",
+        "tutorial": "Set the container to display flex, choose a direction, then align the children with the main-axis and cross-axis alignment properties, change one property at a time to watch the effect.",
         "reference": "A flex container takes flex-direction, flex-wrap, and the two alignment properties; items take grow, shrink, and basis (the flex shorthand) plus a self-alignment override on the cross axis.",
-        "troubleshooting": "If items overflow instead of wrapping, enable wrapping; if main-axis alignment seems to do nothing, your main axis runs the other way — the direction property decides which axis alignment affects.",
+        "troubleshooting": "If items overflow instead of wrapping, enable wrapping; if main-axis alignment seems to do nothing, your main axis runs the other way, the direction property decides which axis alignment affects.",
         "concept": "Flexbox lays items along a single main axis with a perpendicular cross axis; free space is distributed by growing and shrinking items, which is why it excels at one-dimensional, content-sized layouts.",
     },
     "sqljoin": {
         "label": "SQL joins",
         "query": "sql join tables",
-        "tutorial": "Start from your primary table, add a join to the related table, write the matching condition on the keys, then select the columns you need — run it and check the row count before adding more joins.",
+        "tutorial": "Start from your primary table, add a join to the related table, write the matching condition on the keys, then select the columns you need, run it and check the row count before adding more joins.",
         "reference": "An inner join returns matching rows; a left join keeps all left rows with nulls for non-matches; the on clause states the predicate, a cross join is the Cartesian product, and using shortcuts equal-named keys.",
         "troubleshooting": "If a join multiplies your rows, the key is not unique on one side; if expected rows vanish, an inner join dropped the non-matches, so switch to a left join or check for null keys.",
         "concept": "A join combines rows from two tables by a predicate: conceptually it forms the Cartesian product and filters it, though the planner uses hash or merge strategies so it never materializes the whole product.",
@@ -93,7 +93,7 @@ GRID: dict[str, dict[str, str]] = {
     "httpcache": {
         "label": "HTTP caching",
         "query": "http caching headers",
-        "tutorial": "Add a cache-control header to your responses, set a max-age for how long they stay fresh, then add an entity tag so clients can revalidate and get a cheap not-modified — begin with static assets.",
+        "tutorial": "Add a cache-control header to your responses, set a max-age for how long they stay fresh, then add an entity tag so clients can revalidate and get a cheap not-modified, begin with static assets.",
         "reference": "Cache-control directives include max-age, no-cache, no-store, and private or public; an entity tag with the conditional request header enables a 304 that skips the body; expires is the older absolute form.",
         "troubleshooting": "If clients serve stale content, the max-age is too long or no-cache is missing; if nothing caches at all, a set-cookie or a private directive may be suppressing the shared caches.",
         "concept": "HTTP caching trades freshness for latency: responses carry their own freshness lifetime so browsers and intermediaries can reuse them, and revalidation lets a cache confirm a stored copy without refetching it.",

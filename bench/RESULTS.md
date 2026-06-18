@@ -31,7 +31,7 @@ full+rerank          ######################-- 0.933
 full+hybrid+rerank   ######################-- 0.933
 ```
 
-Full vs plain nDCG@10 delta (paired bootstrap 95% CI): **+0.069** [+0.002, +0.152] — **significant**.
+Full vs plain nDCG@10 delta (paired bootstrap 95% CI): **+0.069** [+0.002, +0.152], **significant**.
 
 ### easy track · `ollama:model=nomic-embed-text` · 25 paired cases
 
@@ -57,7 +57,7 @@ full+rerank          ######################-- 0.933
 full+hybrid+rerank   ######################-- 0.933
 ```
 
-Full vs plain nDCG@10 delta (paired bootstrap 95% CI): **+0.210** [+0.129, +0.294] — **significant**.
+Full vs plain nDCG@10 delta (paired bootstrap 95% CI): **+0.210** [+0.129, +0.294], **significant**.
 
 ## Hard track
 
@@ -85,7 +85,7 @@ full+rerank          #################------- 0.712
 full+hybrid+rerank   #################------- 0.712
 ```
 
-Full vs plain nDCG@10 delta (paired bootstrap 95% CI): **+0.028** [-0.029, +0.089] — not significant.
+Full vs plain nDCG@10 delta (paired bootstrap 95% CI): **+0.028** [-0.029, +0.089], not significant.
 
 ### hard track · `ollama:model=nomic-embed-text` · 48 paired cases
 
@@ -111,11 +111,11 @@ full+rerank          #################------- 0.710
 full+hybrid+rerank   #################------- 0.710
 ```
 
-Full vs plain nDCG@10 delta (paired bootstrap 95% CI): **+0.179** [+0.106, +0.254] — **significant**.
+Full vs plain nDCG@10 delta (paired bootstrap 95% CI): **+0.179** [+0.106, +0.254], **significant**.
 
 ## Notes
 
 - **p-MRR** is the paired reciprocal-rank delta (FollowIR-style); ~0 means the configuration is blind to intent (plain cosine returns the same ranking for every intent, so its p-MRR is exactly 0).
 - The significance line is a paired bootstrap CI on the per-case nDCG@10 difference between the full stack and plain cosine.
-- Rerank rows use FlashRank's TinyBERT — topical steering from the injected intent text, not true instruction following (see FollowIR in REFERENCES.md).
+- Rerank rows use FlashRank's TinyBERT, which does topical steering from the injected intent text, not true instruction following (see FollowIR in REFERENCES.md).
 - The hard track's headroom (the full stack well below 1.0) leaves room for future ranking refinements such as per-intent low-rank adapters.

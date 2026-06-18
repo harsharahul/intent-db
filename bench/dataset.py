@@ -2,13 +2,13 @@
 
 Deliberately ambiguous terms (``python``, ``java``, ``swift``, ...) whose
 correct document depends entirely on the intent. The same query string
-appears under several intents with *different* gold documents — the
+appears under several intents with *different* gold documents, the
 structure that makes intent conditioning measurable (and that a plain
 similarity ranker cannot satisfy, since it has only one geometry).
 
-- ``DOCS``: ``(doc_key, text)`` — embedded once at ingest.
+- ``DOCS``: ``(doc_key, text)``, embedded once at ingest.
 - ``INTENTS``: ``(name, description, exemplar_queries)``.
-- ``CASES``: ``(query, intent, gold_doc_key)`` — the evaluation set.
+- ``CASES``: ``(query, intent, gold_doc_key)``, the evaluation set.
 """
 
 from __future__ import annotations

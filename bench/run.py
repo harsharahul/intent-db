@@ -9,10 +9,10 @@
 
 Two tracks:
 
-- **easy** — topical ambiguity ("python" the snake vs. the language); a
+- **easy**, topical ambiguity ("python" the snake vs. the language); a
   diagonal lens solves it by gating topic dimensions, so the full stack
   nearly saturates.
-- **hard** — pragmatic intents (tutorial / reference / troubleshooting /
+- **hard**, pragmatic intents (tutorial / reference / troubleshooting /
   concept) over a shared-topic corpus; every document for a topic shares
   its vocabulary, so the intent, not the query, must pick the answer. This
   leaves headroom for evaluating further ranking refinements.
@@ -95,7 +95,7 @@ def _md_track(track: str, embedder: str, run: dict, configs: list[str]) -> list[
     verdict = "**significant**" if lo > 0 else "not significant"
     lines += [
         f"Full vs plain nDCG@10 delta (paired bootstrap 95% CI): "
-        f"**{d:+.3f}** [{lo:+.3f}, {hi:+.3f}] — {verdict}.",
+        f"**{d:+.3f}** [{lo:+.3f}, {hi:+.3f}], {verdict}.",
         "",
     ]
     return lines
@@ -131,7 +131,7 @@ def render_markdown(matrix: list[tuple[str, str, dict]], configs: list[str]) -> 
         "same ranking for every intent, so its p-MRR is exactly 0).",
         "- The significance line is a paired bootstrap CI on the per-case "
         "nDCG@10 difference between the full stack and plain cosine.",
-        "- Rerank rows use FlashRank's TinyBERT — topical steering from the "
+        "- Rerank rows use FlashRank's TinyBERT, topical steering from the "
         "injected intent text, not true instruction following (see FollowIR "
         "in REFERENCES.md).",
         "- The hard track's headroom (the full stack well below 1.0) leaves "

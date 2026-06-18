@@ -34,10 +34,10 @@ needs a Python where `onnxruntime` has a wheel).
 1. Branch off `main`.
 2. Make the change with tests; keep the suite green and the example
    scripts running.
-3. Match the surrounding style — type hints, concise docstrings that state
+3. Match the surrounding style: type hints, concise docstrings that state
    constraints, no emojis in code or docs.
 4. Open a pull request describing what changed and why. CI runs the test
-   matrix (Python 3.10–3.13), the examples, and the benchmark smoke test.
+   matrix (Python 3.10-3.13), the examples, and the benchmark smoke test.
 
 ## Scope
 

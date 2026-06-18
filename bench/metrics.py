@@ -6,17 +6,17 @@ default; graded relevance is supported by passing a dict.
 
 Metrics:
 
-- :func:`ndcg_at_k` — normalized discounted cumulative gain, the standard
+- :func:`ndcg_at_k`, normalized discounted cumulative gain, the standard
   top-heavy ranking quality measure.
-- :func:`reciprocal_rank` — 1 / rank of the first relevant document.
-- :func:`pmrr_delta` — paired reciprocal-rank delta, the FollowIR-style
+- :func:`reciprocal_rank`, 1 / rank of the first relevant document.
+- :func:`pmrr_delta`, paired reciprocal-rank delta, the FollowIR-style
   signal of intent sensitivity: how much higher a document ranks under the
   intent that makes it relevant versus an intent that does not. Range
   ``[-1, 1]``; positive means the system correctly favors the document
   under its own intent.
-- :func:`robustness` — InstructIR-style worst-case quality: the mean over
+- :func:`robustness`, InstructIR-style worst-case quality: the mean over
   queries of each query's *minimum* nDCG across its intents.
-- :func:`bootstrap_ci` — percentile bootstrap confidence interval, so the
+- :func:`bootstrap_ci`, percentile bootstrap confidence interval, so the
   headline numbers ship with uncertainty rather than as bare points.
 """
 

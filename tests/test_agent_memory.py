@@ -1,6 +1,6 @@
 """The agent-memory reference example: differential recall + feedback loop.
 
-Verifies the core claim — the same memory store returns different memories
+Verifies the core claim, the same memory store returns different memories
 depending on the agent's current phase (debugging / planning / reviewing).
 """
 
@@ -43,7 +43,7 @@ def test_each_phase_surfaces_its_own_kind_of_memory(mem):
 
 
 def test_plain_search_cannot_tell_phases_apart(mem):
-    # without an intent, the same query returns the same ranking every time —
+    # without an intent, the same query returns the same ranking every time,
     # the gap the agent-memory use case fills
     a = [h.doc_key for h in mem.query(agent_memory.DEMO_QUERY, auto_intent=False, k=3)]
     b = [h.doc_key for h in mem.query(agent_memory.DEMO_QUERY, auto_intent=False, k=3)]

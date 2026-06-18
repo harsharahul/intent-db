@@ -1,7 +1,7 @@
 """IntentDB as an LLM agent's memory: same store, recall by purpose.
 
-The primary use case for IntentDB. A coding agent works in phases — *planning*,
-*debugging*, *reviewing* — and writes memories into one IntentDB file as
+The primary use case for IntentDB. A coding agent works in phases, *planning*,
+*debugging*, *reviewing*, and writes memories into one IntentDB file as
 it goes. When it recalls, it queries under its *current* phase, so the
 same query surfaces a different memory depending on what the agent is
 doing right now. The agent reports which memory it actually used
@@ -24,7 +24,7 @@ from pathlib import Path
 from intentdb import IntentDB
 
 # The agent's work phases, registered as intents. Note these describe a
-# *purpose*, not a topic — the differential recall is by what the agent is
+# *purpose*, not a topic, the differential recall is by what the agent is
 # doing, not by keyword.
 PHASES = ("planning", "debugging", "reviewing")
 
@@ -63,7 +63,7 @@ INTENTS = {
 
 # Memories the agent wrote during the session. Keys are prefixed by the
 # phase whose query *should* surface them (plan-/bug-/rule-), used only for
-# narration and the feedback loop — the stored document carries no phase
+# narration and the feedback loop, the stored document carries no phase
 # label; affinity to each phase is computed geometrically at ingest.
 MEMORIES: list[tuple[str, str]] = [
     # -- storage --
@@ -168,7 +168,7 @@ def run_feedback_loop(db: IntentDB) -> dict:
 
 
 def _show(db: IntentDB, query: str) -> None:
-    print(f'\nquery: "{query}"  — same store, recall depends on the phase')
+    print(f'\nquery: "{query}", same store, recall depends on the phase')
     for phase in PHASES:
         top = db.query(query, intent=phase, k=1)[0]
         text = top.text if len(top.text) <= 88 else top.text[:85] + "..."
@@ -185,7 +185,7 @@ def main() -> None:
     for query in ("storage", "reranker", "lens"):
         _show(db, query)
 
-    # Plain search (no phase) can't tell them apart — the gap this fills.
+    # Plain search (no phase) can't tell them apart, the gap this fills.
     print('\nwithout a phase, the same query is answered the same way every time:')
     for h in db.query(DEMO_QUERY, auto_intent=False, k=2):
         print(f"  ({h.doc_key}) {h.text[:85]}")

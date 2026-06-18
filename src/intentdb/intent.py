@@ -4,12 +4,12 @@ An :class:`Intent` is a named retrieval purpose ("debugging", "cooking",
 "legal research", ...) described by free text and optional exemplar
 queries. From those we derive two things:
 
-1. an **intent vector** ``t`` — the unit-norm centroid of the embedded
+1. an **intent vector** ``t``, the unit-norm centroid of the embedded
    description and exemplars. It lives in the same space as documents, so
    we can measure how much any document or query *belongs* to the intent
    (its *affinity*).
 
-2. an **intent lens** — a per-dimension gate ``g`` over the embedding
+2. an **intent lens**, a per-dimension gate ``g`` over the embedding
    space. Applying the lens re-weights embedding dimensions that are
    characteristic of the intent, so the *effective vectorization* of both
    queries and documents changes when the intent is active. This is a
@@ -27,7 +27,7 @@ documents in the lensed space would *penalize* documents rich in
 intent-relevant content (their lensed norm grows with every
 intent-characteristic term they contain). With this form, query-document
 overlap on intent-characteristic dimensions is amplified, overlap on
-incidental dimensions is not — and the whole collection is scored with a
+incidental dimensions is not, and the whole collection is scored with a
 single matrix-vector product, since only the query is transformed.
 """
 
@@ -116,7 +116,7 @@ class Intent:
     ``instruction`` is an optional natural-language task instruction (in the
     style of instruction-finetuned embedders such as INSTRUCTOR or
     nomic-embed). When the database's embedder supports instructions, the
-    query is re-embedded conditioned on the active intent's instruction —
+    query is re-embedded conditioned on the active intent's instruction,
     the query's vectorization itself changes with intent. Defaults to the
     intent's description.
     """
