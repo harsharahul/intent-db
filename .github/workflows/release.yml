@@ -1,8 +1,8 @@
 name: Release
 
 on:
-  push:
-    tags: ["v*"]
+  release:
+    types: [published]
 
 permissions:
   contents: read
@@ -17,6 +17,12 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - name: Verify the release tag matches the package version
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          ver="v$(grep -m1 -E '^version = ' pyproject.toml | cut -d'"' -f2)"
+          echo "release tag=$tag  pyproject=$ver"
+          test "$tag" = "$ver" || { echo "::error::release tag $tag != pyproject version $ver"; exit 1; }
       - name: Build sdist and wheel
         run: uv build
       - name: Publish to PyPI
