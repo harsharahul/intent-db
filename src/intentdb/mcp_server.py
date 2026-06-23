@@ -259,7 +259,7 @@ def handle_message(db: IntentDB, msg: dict[str, Any]) -> dict[str, Any] | None:
             "result": {
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "intentdb", "version": "0.2.0"},
+                "serverInfo": {"name": "intentdb", "version": "0.2.1"},
             },
         }
     if method in ("notifications/initialized", "notifications/cancelled"):
