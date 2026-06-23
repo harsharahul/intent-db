@@ -3,7 +3,7 @@
 All notable changes to IntentDB are documented here, following
 [Keep a Changelog](https://keepachangelog.com/) and semantic versioning.
 
-## [0.2.2] - Unreleased
+## [0.2.2] - 2026-06-23
 
 ### Fixed
 - `OllamaEmbedder` now batches embeddings through the `/api/embed` endpoint with
