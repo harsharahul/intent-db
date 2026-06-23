@@ -3,6 +3,13 @@
 All notable changes to IntentDB are documented here, following
 [Keep a Changelog](https://keepachangelog.com/) and semantic versioning.
 
+## [0.2.1] - Unreleased
+
+### Changed
+- Published to PyPI as `intent-vector-db`. The import package `intentdb` and the
+  `intentdb` CLI command are unchanged; only the distribution name differs.
+- Added a PyPI release workflow using trusted publishing (OIDC).
+
 ## [0.2.0] - 2026-06-17
 
 ### Added
