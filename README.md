@@ -2,6 +2,7 @@
 
 **A local-first vector database with an extra dimension: intent.**
 
+[![PyPI](https://img.shields.io/pypi/v/intent-vector-db)](https://pypi.org/project/intent-vector-db/)
 [![CI](https://github.com/harsharahul/intent-db/actions/workflows/ci.yml/badge.svg)](https://github.com/harsharahul/intent-db/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
