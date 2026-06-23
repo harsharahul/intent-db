@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "intentdb"
+name = "intent-db"
 version = "0.2.0"
 description = "A local-first, intent-aware vector database: retrieval conditioned on intent, built for LLM consumption."
 readme = "README.md"
