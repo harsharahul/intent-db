@@ -3,7 +3,15 @@
 All notable changes to IntentDB are documented here, following
 [Keep a Changelog](https://keepachangelog.com/) and semantic versioning.
 
-## [0.2.1] - Unreleased
+## [0.2.2] - Unreleased
+
+### Fixed
+- `OllamaEmbedder` now batches embeddings through the `/api/embed` endpoint with
+  a retry on transient 5xx, instead of one `/api/embeddings` request per
+  document. This is much faster and avoids the HTTP 500s that a long burst of
+  single-document calls could trigger on the Ollama server.
+
+## [0.2.1] - 2026-06-23
 
 ### Changed
 - Published to PyPI as `intent-vector-db`. The import package `intentdb` and the

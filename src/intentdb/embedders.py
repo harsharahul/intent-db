@@ -24,6 +24,8 @@ import hashlib
 import json
 import math
 import re
+import time
+import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
 
@@ -150,6 +152,9 @@ class OllamaEmbedder(Embedder):
 
     supports_instructions = True
 
+    #: how many texts to send per /api/embed request
+    batch_size = 32
+
     def __init__(
         self,
         model: str = "nomic-embed-text",
@@ -166,7 +171,7 @@ class OllamaEmbedder(Embedder):
         self.prefix_mode = prefix_mode
         self.query_prefix, self.doc_prefix = PREFIX_MODES[prefix_mode]
         # Probe the dimension once if not given.
-        self.dim = dim if dim is not None else len(self._request("dimension probe"))
+        self.dim = dim if dim is not None else self._embed_many(["dimension probe"]).shape[1]
 
     @property
     def spec(self) -> str:
@@ -175,26 +180,70 @@ class OllamaEmbedder(Embedder):
             f"prefix_mode={self.prefix_mode}"
         )
 
-    def _request(self, text: str) -> list[float]:
-        payload = json.dumps({"model": self.model, "prompt": text}).encode("utf-8")
-        req = urllib.request.Request(
-            f"{self.host}/api/embeddings",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            return json.loads(resp.read())["embedding"]
+    def _post(self, path: str, body: dict) -> dict:
+        """POST JSON to the Ollama server, retrying transient 5xx/connection errors."""
+        payload = json.dumps(body).encode("utf-8")
+        last: Exception | None = None
+        for attempt in range(4):
+            try:
+                req = urllib.request.Request(
+                    f"{self.host}{path}",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    return json.loads(resp.read())
+            except urllib.error.HTTPError as e:
+                last = e
+                if 500 <= e.code < 600 and attempt < 3:
+                    time.sleep(0.6 * (attempt + 1))
+                    continue
+                raise
+            except urllib.error.URLError as e:
+                last = e
+                if attempt < 3:
+                    time.sleep(0.6 * (attempt + 1))
+                    continue
+                raise
+        raise last  # pragma: no cover
+
+    def _embed_many(self, texts: list[str]) -> np.ndarray:
+        """Embed texts via the batched /api/embed endpoint; returns a unit-norm matrix.
+
+        Batching keeps the number of HTTP requests small (one per ``batch_size``
+        texts) instead of one per text, which is both faster and far gentler on
+        the Ollama server than a long burst of single-prompt calls.
+        """
+        vectors: list[list[float]] = []
+        for i in range(0, len(texts), self.batch_size):
+            chunk = texts[i : i + self.batch_size]
+            data = self._post("/api/embed", {"model": self.model, "input": chunk})
+            vectors.extend(data["embeddings"])
+        mat = np.asarray(vectors, dtype=np.float64)
+        norms = np.linalg.norm(mat, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        return (mat / norms).astype(np.float32)
 
     def embed(self, text: str) -> np.ndarray:
-        return _normalize(np.asarray(self._request(text), dtype=np.float64))
+        return self._embed_many([text])[0]
 
     def embed_query(self, text: str, instruction: str | None = None) -> np.ndarray:
         if instruction:
             text = f"{instruction.strip()}: {text}"
-        return self.embed(self.query_prefix + text)
+        return self._embed_many([self.query_prefix + text])[0]
 
     def embed_document(self, text: str) -> np.ndarray:
-        return self.embed(self.doc_prefix + text)
+        return self._embed_many([self.doc_prefix + text])[0]
+
+    def embed_batch(self, texts: list[str]) -> np.ndarray:
+        if not texts:
+            return np.zeros((0, self.dim), dtype=np.float32)
+        return self._embed_many(texts)
+
+    def embed_document_batch(self, texts: list[str]) -> np.ndarray:
+        if not texts:
+            return np.zeros((0, self.dim), dtype=np.float32)
+        return self._embed_many([self.doc_prefix + t for t in texts])
 
 
 class SentenceTransformerEmbedder(Embedder):

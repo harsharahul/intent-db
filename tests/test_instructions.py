@@ -86,7 +86,12 @@ def test_ollama_prefixing_without_server():
     e.prefix_mode = "nomic"
     e.query_prefix, e.doc_prefix = PREFIX_MODES["nomic"]
     sent = []
-    e._request = lambda text: (sent.append(text), [0.0] * 8)[1]
+
+    def fake_embed_many(texts):
+        sent.extend(texts)
+        return np.zeros((len(texts), 8), dtype=np.float32)
+
+    e._embed_many = fake_embed_many
 
     e.embed_document("doc text")
     e.embed_query("query text")
