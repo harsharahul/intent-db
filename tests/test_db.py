@@ -124,6 +124,74 @@ def test_delete_document(db):
     assert all(h.doc_key != "zoo-doc" for h in hits)
 
 
+def test_delete_many(db):
+    removed = db.delete_many(["zoo-doc", "pip-doc", "does-not-exist"])
+    assert set(removed) == {"zoo-doc", "pip-doc"}  # only existing keys reported
+    assert db.stats()["documents"] == len(CORPUS) - 2
+
+    # the in-memory mirror is compacted to match (single-pass mask)
+    remaining = len(CORPUS) - 2
+    assert db._matrix.shape[0] == remaining
+    assert len(db._keys) == len(db._ids) == len(db._texts) == remaining
+    for aff in db._intent_affinities.values():
+        assert aff.shape[0] == remaining
+
+    # deleted docs no longer surface, and ranking still holds
+    hits = db.query("python", intent="coding", k=4)
+    keys = {h.doc_key for h in hits}
+    assert {"zoo-doc", "pip-doc"}.isdisjoint(keys)
+    assert hits[0].doc_key == "python-lang"
+    assert all(np.isfinite(h.score) for h in hits)
+
+    assert db.delete_many(["zoo-doc"]) == []  # idempotent
+
+
+def test_add_many_new_and_replace_in_one_batch(db):
+    n0 = db.stats()["documents"]
+    keys = db.add_many(
+        [
+            ("A fresh note about gardening tomatoes outdoors.", "garden-doc", {"topic": "home"}),
+            ("Replacement text: pip builds and installs wheels.", "pip-doc", {"topic": "software"}),
+        ]
+    )
+    assert keys == ["garden-doc", "pip-doc"]
+    assert db.stats()["documents"] == n0 + 1  # one new, one replaced
+
+    # matrix and affinity arrays grew exactly once, staying aligned
+    assert db._matrix.shape[0] == n0 + 1
+    assert len(db._keys) == n0 + 1
+    for aff in db._intent_affinities.values():
+        assert aff.shape[0] == n0 + 1
+
+    assert db.get("pip-doc")["text"].startswith("Replacement")
+    hits = db.query("gardening tomatoes", k=2, auto_intent=False)
+    assert any(h.doc_key == "garden-doc" for h in hits)
+
+
+def test_busy_timeout_pragma(db):
+    assert db.store.conn.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
+
+
+def test_batch_ops_cross_chunk_boundary(tmp_path):
+    # Exercise the >900 bound-variable chunking in ids_for_keys / delete_documents.
+    db = IntentDB(tmp_path / "big.intentdb", embedder="hashing:dim=64")
+    try:
+        n = 950
+        db.add_many([(f"document number {i} body text", f"k{i}", {}) for i in range(n)])
+        assert db.stats()["documents"] == n
+        assert db._matrix.shape == (n, 64)
+
+        to_delete = [f"k{i}" for i in range(920)] + ["missing-a", "missing-b"]
+        removed = db.delete_many(to_delete)
+        assert set(removed) == {f"k{i}" for i in range(920)}
+        assert db.stats()["documents"] == n - 920
+        assert db._matrix.shape[0] == n - 920
+        # a surviving doc is still retrievable
+        assert db.get("k949") is not None
+    finally:
+        db.close()
+
+
 def test_add_after_intent_registration_is_indexed(db):
     db.add(
         "A cobra is a venomous snake found in jungle regions.",

@@ -250,44 +250,74 @@ class IntentDB:
             return []
         texts = [t for t, _, _ in items]
         vectors = self.embedder.embed_document_batch(texts)
-        out_keys: list[str] = []
-        stats_rows: list[tuple[int, str, float]] = []
 
-        for (text, doc_key, metadata), vec in zip(items, vectors):
-            key = doc_key or uuid4().hex
-            meta = metadata or {}
-            doc_id = self.store.upsert_document(key, text, meta, vec)
+        # Persist every document in a single transaction (one commit, not one
+        # per row), then grow the in-memory mirror in one pass.
+        resolved = [
+            (doc_key or uuid4().hex, text, metadata or {}, vec)
+            for (text, doc_key, metadata), vec in zip(items, vectors)
+        ]
+        doc_ids = self.store.upsert_documents(resolved)
+
+        existing_pos = {k: i for i, k in enumerate(self._keys)}
+        base = len(self._keys)  # where appended rows will start
+        out_keys: list[str] = []
+        new_ids: list[int] = []
+        new_keys: list[str] = []
+        new_texts: list[str] = []
+        new_metas: list[dict] = []
+        new_vecs: list[np.ndarray] = []
+        staged: dict[str, int] = {}  # new key -> index into the new_* lists
+        # final per-key state (last write wins within a batch): key -> (pos, id, vec)
+        final: dict[str, tuple[int, int, np.ndarray]] = {}
+
+        for (key, text, meta, vec), doc_id in zip(resolved, doc_ids):
             out_keys.append(key)
             self._bm25.add(key, text)
-
-            if key in self._keys:  # replace in the in-memory mirror
-                pos = self._keys.index(key)
+            if key in existing_pos:  # already in the mirror: update in place
+                pos = existing_pos[key]
                 self._texts[pos] = text
                 self._metas[pos] = meta
                 self._matrix[pos] = vec
-            else:
-                pos = len(self._keys)
-                self._ids.append(doc_id)
-                self._keys.append(key)
-                self._texts.append(text)
-                self._metas.append(meta)
-                self._matrix = (
-                    np.vstack([self._matrix, vec[None, :]])
-                    if self._matrix.size
-                    else vec[None, :].astype(np.float32)
+                final[key] = (pos, doc_id, vec)
+            elif key in staged:  # duplicate of a key new in this same batch
+                j = staged[key]
+                new_texts[j], new_metas[j], new_vecs[j], new_ids[j] = (
+                    text, meta, vec, doc_id,
                 )
-                for name, aff in self._intent_affinities.items():
-                    self._intent_affinities[name] = np.append(aff, 0.0).astype(
-                        np.float32
-                    )
+                final[key] = (base + j, doc_id, vec)
+            else:  # brand new: stage for one bulk append
+                j = len(new_keys)
+                staged[key] = j
+                new_ids.append(doc_id)
+                new_keys.append(key)
+                new_texts.append(text)
+                new_metas.append(meta)
+                new_vecs.append(vec)
+                final[key] = (base + j, doc_id, vec)
 
-            for intent in self._intents.values():
-                affinity = float(intent.affinity(vec))
-                stats_rows.append((doc_id, intent.name, affinity))
-                self._intent_affinities[intent.name][pos] = affinity
+        if new_keys:
+            self._ids.extend(new_ids)
+            self._keys.extend(new_keys)
+            self._texts.extend(new_texts)
+            self._metas.extend(new_metas)
+            block = np.vstack(new_vecs).astype(np.float32)
+            self._matrix = (
+                np.vstack([self._matrix, block]) if self._matrix.size else block
+            )
+            pad = np.zeros(len(new_keys), dtype=np.float32)
+            for name, aff in self._intent_affinities.items():
+                self._intent_affinities[name] = np.concatenate([aff, pad])
 
-        if stats_rows:
-            self.store.upsert_doc_intent_stats(stats_rows)
+        if self._intents:
+            stats_rows: list[tuple[int, str, float]] = []
+            for pos, doc_id, vec in final.values():
+                for intent in self._intents.values():
+                    affinity = float(intent.affinity(vec))
+                    stats_rows.append((doc_id, intent.name, affinity))
+                    self._intent_affinities[intent.name][pos] = affinity
+            if stats_rows:
+                self.store.upsert_doc_intent_stats(stats_rows)
         return out_keys
 
     def add_chunked(
@@ -323,6 +353,34 @@ class IntentDB:
             self._matrix = np.delete(self._matrix, pos, axis=0)
             for name, aff in self._intent_affinities.items():
                 self._intent_affinities[name] = np.delete(aff, pos)
+        return removed
+
+    def delete_many(self, doc_keys: Iterable[str]) -> list[str]:
+        """Delete many documents by key in one pass. Returns the keys removed.
+
+        Compacts the in-memory matrix and affinity arrays a single time (a
+        boolean mask), instead of one O(N) ``np.delete`` per key as repeated
+        ``delete`` calls would do.
+        """
+        self._ensure_loaded()
+        keys = list(doc_keys)
+        if not keys:
+            return []
+        removed = self.store.delete_documents(keys)
+        if not removed:
+            return []
+        removed_set = set(removed)
+        for key in removed_set:
+            self._bm25.remove(key)
+        keep = [i for i, k in enumerate(self._keys) if k not in removed_set]
+        if len(keep) != len(self._keys):
+            self._ids = [self._ids[i] for i in keep]
+            self._texts = [self._texts[i] for i in keep]
+            self._metas = [self._metas[i] for i in keep]
+            self._keys = [self._keys[i] for i in keep]
+            self._matrix = self._matrix[keep]
+            for name, aff in self._intent_affinities.items():
+                self._intent_affinities[name] = aff[keep]
         return removed
 
     def get(self, doc_key: str) -> dict | None:

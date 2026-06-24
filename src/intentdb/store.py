@@ -96,6 +96,10 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(self.path))
         self.conn.execute("PRAGMA journal_mode=WAL")
+        # Wait (up to 5s) for a competing writer instead of failing immediately,
+        # so a second process indexing the same store does not raise "database
+        # is locked" under brief contention.
+        self.conn.execute("PRAGMA busy_timeout=5000")
         self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.executescript(_SCHEMA)
         self._migrate()
@@ -149,6 +153,74 @@ class Store:
         cur = self.conn.execute("DELETE FROM documents WHERE doc_key=?", (doc_key,))
         self.conn.commit()
         return cur.rowcount > 0
+
+    # SQLite caps a statement at 999 bound variables; stay safely under it.
+    _VAR_CHUNK = 900
+
+    def ids_for_keys(self, doc_keys: list[str]) -> dict[str, int]:
+        """Map each existing doc_key to its row id (one query per chunk)."""
+        out: dict[str, int] = {}
+        for i in range(0, len(doc_keys), self._VAR_CHUNK):
+            batch = doc_keys[i : i + self._VAR_CHUNK]
+            placeholders = ",".join("?" * len(batch))
+            for row in self.conn.execute(
+                f"SELECT doc_key, id FROM documents WHERE doc_key IN ({placeholders})",
+                batch,
+            ):
+                out[row[0]] = int(row[1])
+        return out
+
+    def upsert_documents(
+        self, items: list[tuple[str, str, dict, np.ndarray]]
+    ) -> list[int]:
+        """Insert-or-replace many documents in ONE transaction.
+
+        Returns the row id per item, in input order (duplicate keys resolve to
+        the same id). Far cheaper than one ``upsert_document`` per row, which
+        commits (and fsyncs) every time.
+        """
+        if not items:
+            return []
+        now = time.time()
+        self.conn.executemany(
+            "INSERT INTO documents(doc_key, text, metadata, vector, created_at) "
+            "VALUES(?, ?, ?, ?, ?) "
+            "ON CONFLICT(doc_key) DO UPDATE SET "
+            "text=excluded.text, metadata=excluded.metadata, "
+            "vector=excluded.vector, created_at=excluded.created_at",
+            [(k, t, json.dumps(m), _to_blob(v), now) for (k, t, m, v) in items],
+        )
+        self.conn.commit()
+        id_map = self.ids_for_keys([k for (k, _, _, _) in items])
+        return [id_map[k] for (k, _, _, _) in items]
+
+    def delete_documents(self, doc_keys: list[str]) -> list[str]:
+        """Delete many documents by key in ONE transaction.
+
+        Returns the keys that actually existed (so callers can compact their
+        in-memory mirror to match).
+        """
+        keys = list(doc_keys)
+        if not keys:
+            return []
+        removed: list[str] = []
+        for i in range(0, len(keys), self._VAR_CHUNK):
+            batch = keys[i : i + self._VAR_CHUNK]
+            placeholders = ",".join("?" * len(batch))
+            present = [
+                row[0]
+                for row in self.conn.execute(
+                    f"SELECT doc_key FROM documents WHERE doc_key IN ({placeholders})",
+                    batch,
+                )
+            ]
+            if present:
+                self.conn.execute(
+                    f"DELETE FROM documents WHERE doc_key IN ({placeholders})", batch
+                )
+                removed.extend(present)
+        self.conn.commit()
+        return removed
 
     def get_document(self, doc_key: str) -> dict | None:
         row = self.conn.execute(
