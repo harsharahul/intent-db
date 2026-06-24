@@ -3,6 +3,23 @@
 All notable changes to IntentDB are documented here, following
 [Keep a Changelog](https://keepachangelog.com/) and semantic versioning.
 
+## [0.2.3] - 2026-06-24
+
+### Added
+- `delete_many(doc_keys)`: remove many documents in one pass. The store deletes
+  them in a single transaction (chunked to stay under SQLite's bound-variable
+  limit) and the in-memory matrix and intent-affinity arrays are compacted once
+  with a boolean mask, instead of one O(N) rebuild per key.
+
+### Changed
+- `add_many` now persists every document in a single transaction and grows the
+  in-memory matrix and affinity arrays once per batch, instead of committing and
+  reallocating per row. This makes bulk indexing of a large corpus markedly
+  faster while preserving upsert (replace-by-key) semantics.
+- The store sets `PRAGMA busy_timeout=5000`, so a second process writing to the
+  same index waits briefly for the lock instead of failing with "database is
+  locked".
+
 ## [0.2.2] - 2026-06-23
 
 ### Fixed
